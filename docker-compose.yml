@@ -1,0 +1,45 @@
+version: "3.9"
+services:
+  backend:
+    image: ${DOCKER_HUB_USERNAME}/madentk-agents-backend:${TAG}
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: smartfood-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - CHROMA_DB_DIR=/data/chroma_db
+      - GOOGLE_APPLICATION_CREDENTIALS=${FIREBASE_SERVICE_ACCOUNT_JSON}
+    volumes:
+      - chroma_data:/data/chroma_db
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000').status<500 else 1)\" "]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  streamlit:
+    image: ${DOCKER_HUB_USERNAME}/madentk-agents-ui:${TAG}
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: smartfood-streamlit
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - CHAT_API_BASE_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+
+volumes:
+  chroma_data:
+    driver: local
+
