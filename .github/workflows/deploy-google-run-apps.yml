@@ -79,9 +79,13 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --memory=1Gi \
-            --cpu=1 \
-            --timeout=300 \
+            --memory=4Gi \
+            --cpu=2 \
+            --timeout=900 \
+            --concurrency=1 \
+            --min-instances=0 \
+            --max-instances=3 \
+            --execution-environment=gen2 \
             --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},Gemini_API_KEY=${{ secrets.GEMINI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 
       - name: Get backend Service URL
