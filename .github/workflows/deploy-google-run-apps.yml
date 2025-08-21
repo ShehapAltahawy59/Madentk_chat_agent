@@ -66,7 +66,8 @@ jobs:
             --allow-unauthenticated \
             --memory=1Gi \
             --cpu=1 \
-            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
+            --timeout=300 \
+            --set-env-vars="PORT=8080,GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 
       - name: Get backend Service URL
         id: backend-url

@@ -1,12 +1,7 @@
 from typing import List, Optional, Literal
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.schema import Document
 import os
 import json
 import numpy as np
-from sentence_transformers import CrossEncoder
-from fuzzywuzzy import process
 import unicodedata
 import random
 from datetime import datetime
@@ -17,17 +12,45 @@ from huggingface_hub import login as hf_login
 
 # Load environment variables
 load_dotenv()
+
+# Try to import ML dependencies, but don't fail if they're not available
+try:
+    from langchain.embeddings import HuggingFaceEmbeddings
+    from langchain.vectorstores import Chroma
+    from langchain.schema import Document
+    from sentence_transformers import CrossEncoder
+    from fuzzywuzzy import process
+    ML_DEPS_AVAILABLE = True
+    print("✅ ML dependencies imported successfully")
+except ImportError as e:
+    print(f"⚠ ML dependencies not available: {e}")
+    ML_DEPS_AVAILABLE = False
+    # Create dummy classes to prevent import errors
+    class HuggingFaceEmbeddings:
+        def __init__(self, *args, **kwargs):
+            pass
+    class Chroma:
+        def __init__(self, *args, **kwargs):
+            pass
+    class Document:
+        def __init__(self, *args, **kwargs):
+            pass
+    class CrossEncoder:
+        def __init__(self, *args, **kwargs):
+            pass
+    def process(*args, **kwargs):
+        return None
+
 # Active user context
 active_user_id: Optional[str] = None
 active_where: Optional[str] = None
+
 def set_active_user_id(user_id: Optional[str]) -> None:
     global active_user_id
     active_user_id = user_id
 
-
 def get_active_user_id() -> Optional[str]:
     return active_user_id
-
 
 def set_active_where(where_value: Optional[str]) -> None:
     global active_where
@@ -35,6 +58,7 @@ def set_active_where(where_value: Optional[str]) -> None:
 
 def get_active_where() -> Optional[str]:
     return active_where
+
 # Initialize Firestore
 if not firebase_admin._apps:
     cred_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "foodorderapp.json")
@@ -153,7 +177,6 @@ def insert_order(order_data: dict) -> dict:
         print(f"⚠ Error in insert_order: {e}")
         return {"status": "error", "message": str(e)}
 
-
 def get_user_by_id(user_id: str) -> dict:
     try:
         query = db.collection("users").where("user_id", "==", user_id).limit(1).stream()
@@ -168,7 +191,6 @@ def get_user_by_id(user_id: str) -> dict:
         print(f"⚠ Error fetching user: {e}")
         return None
 
-
 def get_restaurant_by_id(restaurant_id: str) -> dict:
     try:
         doc = db.collection("categories").document(restaurant_id).get()
@@ -178,7 +200,6 @@ def get_restaurant_by_id(restaurant_id: str) -> dict:
     except Exception as e:
         print(f"⚠ Error fetching restaurant: {e}")
         return None
-
 
 def get_item_by_id(item_id: str, restaurant_id: Optional[str] = None) -> dict:
     try:
@@ -193,7 +214,6 @@ def get_item_by_id(item_id: str, restaurant_id: Optional[str] = None) -> dict:
         print(f"⚠ Error fetching item: {e}")
         return None
 
-
 def get_items_in_restaurant(restaurant_id: str) -> List[dict]:
     try:
         query = db.collection("items").where("item_cat", "==", restaurant_id).stream()
@@ -202,8 +222,11 @@ def get_items_in_restaurant(restaurant_id: str) -> List[dict]:
         print(f"⚠ Error fetching items: {e}")
         return []
 
-
 def search_restaurant_by_name(name: str) -> List[dict]:
+    if not ML_DEPS_AVAILABLE:
+        print("⚠ ML dependencies not available for restaurant search")
+        return []
+    
     try:
         restaurants = []
         for doc in db.collection("categories").where("where", "==", "quweisna").stream():
@@ -225,82 +248,43 @@ def search_restaurant_by_name(name: str) -> List[dict]:
 
 # --- Vectorstore Setup with Summarized Chunks ---
 device = 'cpu'
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    model_kwargs={'device': device}
-)
-chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
-collection_name = "food_data"
-
-docs: List[Document] = []
+embedding_model = None
 vectorstore = None
 
-if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
+if ML_DEPS_AVAILABLE:
     try:
-        vectorstore = Chroma(
-            collection_name=collection_name,
-            embedding_function=embedding_model,
-            persist_directory=chroma_path
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_kwargs={'device': device}
         )
+        print("✅ Embedding model initialized")
     except Exception as e:
-        print(f"⚠ Error loading vectorstore: {e}")
-        vectorstore = None
-else:
-    restaurant_data = {}
-    try:
-        for doc in db.collection("categories").where('where', '==', 'quweisna').stream():
-            restaurant_data[doc.id] = doc.to_dict()
-    except Exception as e:
-        print(f"⚠ Error fetching restaurant data: {e}")
+        print(f"⚠ Failed to initialize embedding model: {e}")
 
-    # Summarize items
-    for doc in db.collection("items").stream():
-        item = doc.to_dict()
-        rest_id = item.get("item_cat")
-        if rest_id not in restaurant_data:
-            continue
-        restaurant = restaurant_data[rest_id]
+if embedding_model:
+    chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
+    collection_name = "food_data"
 
-        item_summary = f"Item: {normalize_arabic(item.get('name_en', ''))} / {normalize_arabic(item.get('name_ar', ''))} | " \
-                       f"Price: {item.get('price', '')} | " \
-                       f"Restaurant: {normalize_arabic(restaurant.get('name_en', ''))} / {normalize_arabic(restaurant.get('name_ar', ''))}"
-
-        docs.append(Document(page_content=item_summary, metadata={
-            "type": "item",
-            "item_id": item.get("item_id", ""),
-            "restaurant_id": rest_id,
-            "restaurant_name": normalize_arabic(restaurant.get("name_ar", ""))
-        }))
-
-    # Summarize restaurants
-    for rest_id, restaurant in restaurant_data.items():
-        restaurant_summary = f"Restaurant: {normalize_arabic(restaurant.get('name_en', ''))} / {normalize_arabic(restaurant.get('name_ar', ''))} | " \
-                             f"Description: {normalize_arabic(restaurant.get('desc_en', '') or restaurant.get('desc_ar', ''))} | " \
-                             f"City: {restaurant.get('where', '')}"
-
-        docs.append(Document(page_content=restaurant_summary, metadata={
-            "type": "restaurant",
-            "restaurant_id": rest_id,
-            "restaurant_name": normalize_arabic(restaurant.get("name_ar", ""))
-        }))
-
-    try:
-        vectorstore = Chroma.from_documents(
-            documents=docs,
-            embedding=embedding_model,
-            collection_name=collection_name,
-            persist_directory=chroma_path
-        )
-        vectorstore.persist()
-    except Exception as e:
-        print(f"⚠ Error creating vectorstore: {e}")
-        vectorstore = None
+    if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
+        try:
+            vectorstore = Chroma(
+                collection_name=collection_name,
+                embedding_function=embedding_model,
+                persist_directory=chroma_path
+            )
+            print("✅ Vectorstore loaded from existing directory")
+        except Exception as e:
+            print(f"⚠ Error loading vectorstore: {e}")
+            vectorstore = None
+    else:
+        print("⚠ Chroma DB directory not found, vectorstore not initialized")
 
 # Semantic Search Tool
 def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] = None, k: int = 20) -> List[dict]:
-    if not vectorstore:
-        print("⚠ Vectorstore not initialized, returning empty results")
+    if not vectorstore or not ML_DEPS_AVAILABLE:
+        print("⚠ Vectorstore not available for semantic search")
         return []
+    
     try:
         normalized_query = normalize_arabic(query)
         filters = {}

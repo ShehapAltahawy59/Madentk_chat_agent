@@ -11,10 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install minimal Python dependencies
+# Copy and install Python dependencies
 COPY requirements.backend.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.backend.txt \
+    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
     && rm -rf /root/.cache/pip
 
 # Copy application code
@@ -25,5 +26,12 @@ COPY app.py ./
 ENV CHROMA_DB_DIR=/data/chroma_db
 EXPOSE 8080
 
-# Use shell form to allow environment variable substitution
-CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} 
+# Create a startup script to handle potential import errors
+RUN echo '#!/bin/bash\n\
+echo "Starting FastAPI application..."\n\
+echo "PORT: ${PORT:-8080}"\n\
+python -c "import app; print(\"App imported successfully\")" || echo "Warning: Some imports failed"\n\
+exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+CMD ["/app/start.sh"] 
