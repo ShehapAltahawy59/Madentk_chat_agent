@@ -33,7 +33,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "8501:8501"
+      - "8501:8080"
 
 volumes:
   chroma_data:

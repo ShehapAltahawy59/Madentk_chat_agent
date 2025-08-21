@@ -14,8 +14,15 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Copy application code
 COPY streamlit_app.py ./
 
-EXPOSE 8501
+EXPOSE 8080
 
 ENV CHAT_API_BASE_URL=http://backend:8080
 
-CMD ["streamlit", "run", "streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"] 
+# Create a startup script to handle PORT environment variable
+RUN echo '#!/bin/bash\n\
+echo "Starting Streamlit application..."\n\
+echo "PORT: ${PORT:-8080}"\n\
+exec streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port ${PORT:-8080}\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+CMD ["/app/start.sh"] 
