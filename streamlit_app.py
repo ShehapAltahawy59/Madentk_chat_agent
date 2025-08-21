@@ -15,6 +15,7 @@ with st.sidebar:
     default_base_url = os.environ.get("CHAT_API_BASE_URL", "http://localhost:8000")
     base_url = st.text_input("FastAPI base URL", value=default_base_url, help="Where your FastAPI server is running")
     user_id = st.text_input("User ID (optional)")
+    where_value = st.text_input("Where (optional)")
     st.markdown("---")
     if st.button("Clear chat", use_container_width=True):
         st.session_state.pop("chat_history", None)
@@ -50,6 +51,10 @@ if prompt:
     }
     if user_id:
         payload["user_id"] = user_id
+    if where_value:
+        payload["where"] = where_value
+    else:
+        payload["where"] = "quweisna"
 
     # Call the /chat endpoint
     try:

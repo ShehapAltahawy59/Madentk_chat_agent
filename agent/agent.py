@@ -15,6 +15,7 @@ smart_agent = AssistantAgent(
         tools_module.get_item_by_id,
         tools_module.get_items_in_restaurant,
         tools_module.search_restaurant_by_name,
+        tools_module.get_active_user_id,
     ],
     reflect_on_tool_use=True,
 ) 

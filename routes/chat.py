@@ -4,11 +4,13 @@ from typing import List, Optional
 from autogen_agentchat.messages import TextMessage
 from autogen_core import CancellationToken
 from agent.agent import smart_agent
+from agent import tools as tools_module
 
 class ChatRequest(BaseModel):
     user_query: str
     history: List[List[Optional[str]]] = []
     user_id: Optional[str] = None
+    where: Optional[str] = None
 
 router = APIRouter()
 
@@ -17,6 +19,10 @@ async def chat(request: ChatRequest):
     user_query = request.user_query
     history = request.history
     message_with_context = user_query
+
+    # Store active user id and where (available to tools and agent via tool)
+    tools_module.set_active_user_id(request.user_id)
+    tools_module.set_active_where(request.where)
 
     messages = []
     for pair in history[-5:]:

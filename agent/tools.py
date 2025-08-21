@@ -3,6 +3,7 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Chroma
 from langchain.schema import Document
 import os
+import json
 import numpy as np
 from sentence_transformers import CrossEncoder
 from fuzzywuzzy import process
@@ -12,15 +13,51 @@ from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
+from huggingface_hub import login as hf_login
 
 # Load environment variables
 load_dotenv()
+# Active user context
+active_user_id: Optional[str] = None
+active_where: Optional[str] = None
+def set_active_user_id(user_id: Optional[str]) -> None:
+    global active_user_id
+    active_user_id = user_id
 
+
+def get_active_user_id() -> Optional[str]:
+    return active_user_id
+
+
+def set_active_where(where_value: Optional[str]) -> None:
+    global active_where
+    active_where = where_value
+
+def get_active_where() -> Optional[str]:
+    return active_where
 # Initialize Firestore
 if not firebase_admin._apps:
-    cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "foodorderapp.json")
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred)
+    cred_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "foodorderapp.json")
+    # Accept either a file path or an inline JSON string
+    if os.path.isfile(cred_env):
+        cred_obj = credentials.Certificate(cred_env)
+    else:
+        try:
+            cred_info = json.loads(cred_env)
+            cred_obj = credentials.Certificate(cred_info)
+        except json.JSONDecodeError:
+            raise ValueError(
+                "GOOGLE_APPLICATION_CREDENTIALS must be a valid file path or a JSON string."
+            )
+    firebase_admin.initialize_app(cred_obj)
+
+# Login to Hugging Face Hub if token provided
+_hf_token = os.environ.get("HUGGINGFACE_HUB_TOKEN") or os.environ.get("HF_TOKEN")
+if _hf_token:
+    try:
+        hf_login(token=_hf_token)
+    except Exception as _e:
+        print(f"⚠ Hugging Face login failed: {_e}")
 
 db = firestore.client()
 
@@ -60,7 +97,7 @@ REQUIRED_FIELDS = {
     "totalprice": "",
     "user_id": "",
     "username": "",
-    "where": "quweisna"
+    "where": ""
 }
 
 def insert_order(order_data: dict) -> dict:
@@ -107,6 +144,9 @@ def insert_order(order_data: dict) -> dict:
             order_data["orderid"] = random.randint(1000000000, 9999999999)
         if not order_data["time"]:
             order_data["time"] = datetime.now()
+        ctx_where = get_active_where()
+        if ctx_where:
+            order_data["where"] = ctx_where
         db.collection("orders").add(order_data)
         return {"status": "success", "message": f"✅ Order {order_data['orderid']} placed successfully."}
     except Exception as e:
