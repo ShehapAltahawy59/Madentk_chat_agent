@@ -13,9 +13,9 @@ services:
     volumes:
       - chroma_data:/data/chroma_db
     ports:
-      - "8000:8000"
+      - "8000:8080"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000').status<500 else 1)\" "]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health').status<500 else 1)\" "]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,7 +28,7 @@ services:
     container_name: smartfood-streamlit
     restart: unless-stopped
     environment:
-      - CHAT_API_BASE_URL=http://backend:8000
+      - CHAT_API_BASE_URL=http://backend:8080
     depends_on:
       backend:
         condition: service_healthy

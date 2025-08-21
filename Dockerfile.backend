@@ -1,3 +1,20 @@
+# Build stage
+FROM python:3.10-slim as builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python packages
+COPY requirements.backend.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --user -r requirements.backend.txt \
+    && pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
+
+# Runtime stage
 FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -5,17 +22,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
-COPY requirements.backend.txt ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.backend.txt \
-    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && rm -rf /root/.cache/pip
+# Copy Python packages from builder stage
+COPY --from=builder /root/.local /root/.local
+
+# Make sure scripts in .local are usable
+ENV PATH=/root/.local/bin:$PATH
 
 # Copy application code
 COPY agent/ ./agent/
@@ -23,6 +39,7 @@ COPY routes/ ./routes/
 COPY app.py ./
 
 ENV CHROMA_DB_DIR=/data/chroma_db
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "${PORT:-8000}"] 
+# Use shell form to allow environment variable substitution
+CMD uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} 
