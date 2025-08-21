@@ -42,32 +42,32 @@ jobs:
         project_id: ${{ env.PROJECT_ID }}
 
     - name: Prepare image tags
-        id: tags
-        run: |
+      id: tags
+      run: |
           echo "TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
           echo "backend_image=${{ env.DOCKER_HUB_USERNAME }}/madentk-agents-backend:${GITHUB_SHA}" >> $GITHUB_OUTPUT
           echo "ui_image=${{ env.DOCKER_HUB_USERNAME }}/madentk-agents-ui:${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-      - name: Build and push images with Docker Compose
-        env:
-          DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-          TAG: ${{ steps.tags.outputs.TAG }}
-          DOCKER_DEFAULT_PLATFORM: linux/amd64
-        run: |
+    - name: Build and push images with Docker Compose
+      env:
+        DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+        TAG: ${{ steps.tags.outputs.TAG }}
+        DOCKER_DEFAULT_PLATFORM: linux/amd64
+      run: |
           echo "Building images with Docker Compose..."
           docker compose build --parallel
           echo "Pushing images to Docker Hub..."
           docker compose push
           echo "Build and push completed"
 
-      - name: Verify images were pushed
-        run: |
+    - name: Verify images were pushed
+      run: |
           echo "Verifying images were pushed to Docker Hub..."
           docker pull ${{ steps.tags.outputs.backend_image }}
           docker pull ${{ steps.tags.outputs.ui_image }}
           echo "✅ Images verified and available"
 
-      - name: Deploy backend to Cloud Run
+    - name: Deploy backend to Cloud Run
       run: |
           echo "Deploying backend to Cloud Run..."
           echo "Image: ${{ steps.tags.outputs.backend_image }}"
@@ -76,9 +76,9 @@ jobs:
           
           gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
             --image=${{ steps.tags.outputs.backend_image }} \
-          --region=${{ env.REGION }} \
-          --platform=managed \
-          --allow-unauthenticated \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
             --memory=4Gi \
             --cpu=2 \
             --timeout=900 \
@@ -88,13 +88,13 @@ jobs:
             --execution-environment=gen2 \
             --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},Gemini_API_KEY=${{ secrets.GEMINI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 
-      - name: Get backend Service URL
-        id: backend-url
+    - name: Get backend Service URL
+      id: backend-url
       run: |
           # Get the service URL
           URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
-          --region ${{ env.REGION }} \
-          --format 'value(status.url)')
+            --region ${{ env.REGION }} \
+            --format 'value(status.url)')
           
           echo "Raw Backend URL: $URL"
           
@@ -113,8 +113,8 @@ jobs:
           echo "Testing backend URL..."
           curl -f --max-time 10 "$URL/health" || echo "Health check failed for $URL"
 
-      - name: Deploy streamlit to Cloud Run
-        run: |
+    - name: Deploy streamlit to Cloud Run
+      run: |
           echo "Deploying streamlit to Cloud Run..."
           echo "Image: ${{ steps.tags.outputs.ui_image }}"
           echo "Service: ${{ env.STREAMLIT_SERVICE_NAME }}"
@@ -129,16 +129,16 @@ jobs:
             --cpu=1 \
             --set-env-vars="CHAT_API_BASE_URL=${{ steps.backend-url.outputs.url }}"
 
-      - name: Echo service URLs
-        run: |
+    - name: Echo service URLs
+      run: |
           echo "=== Service URLs ==="
           echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
           UI_URL=$(gcloud run services describe ${{ env.STREAMLIT_SERVICE_NAME }} --region ${{ env.REGION }} --format 'value(status.url)')
           echo "UI URL: ${UI_URL}"
           echo "==================="
 
-      - name: Test backend health (best-effort)
-        run: |
+    - name: Test backend health (best-effort)
+      run: |
           echo "Waiting for backend to be ready..." && sleep 30
           echo "Testing backend health at: ${{ steps.backend-url.outputs.url }}"
           set +e
@@ -147,9 +147,9 @@ jobs:
           echo "Health check failed"
           set -e
 
-      - name: Debug container logs (if deployment fails)
-        if: failure()
-        run: |
+    - name: Debug container logs (if deployment fails)
+      if: failure()
+      run: |
           echo "=== Debugging deployment failure ==="
           echo "Checking service status..."
           gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
