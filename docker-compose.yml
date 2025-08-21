@@ -27,8 +27,6 @@ services:
       dockerfile: Dockerfile.streamlit
     container_name: smartfood-streamlit
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       - CHAT_API_BASE_URL=http://backend:8000
     depends_on:
