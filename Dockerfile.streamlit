@@ -5,10 +5,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Copy and install Python dependencies
 COPY requirements.streamlit.txt ./
-RUN pip install --no-cache-dir -r requirements.streamlit.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.streamlit.txt \
+    && rm -rf /root/.cache/pip
 
-COPY . .
+# Copy application code
+COPY streamlit_app.py ./
 
 EXPOSE 8501
 
