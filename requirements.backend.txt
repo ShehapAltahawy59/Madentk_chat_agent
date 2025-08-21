@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+firebase-admin
+langchain
+langchain-huggingface
+chromadb
+sentence-transformers
+fuzzywuzzy
+numpy
+autogen-agentchat
+autogen-core
+autogen-ext
+pydantic
+requests
+python-dotenv
+huggingface-hub 

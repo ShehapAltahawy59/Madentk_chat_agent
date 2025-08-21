@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   backend:
-    image: ${DOCKER_HUB_USERNAME}/madentk-agents-backend:${TAG}
+    image: ${DOCKER_HUB_USERNAME}/madentk-agents-backend:${TAG} # TAG is set by CI to GITHUB_SHA
     build:
       context: .
       dockerfile: Dockerfile.backend
