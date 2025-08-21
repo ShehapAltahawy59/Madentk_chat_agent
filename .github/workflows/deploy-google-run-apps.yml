@@ -91,11 +91,27 @@ jobs:
       - name: Get backend Service URL
         id: backend-url
         run: |
+          # Get the service URL
           URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
             --region ${{ env.REGION }} \
             --format 'value(status.url)')
-          echo "Backend URL: $URL"
+          
+          echo "Raw Backend URL: $URL"
+          
+          # Validate URL format
+          if [[ $URL =~ ^https://.*\.run\.app$ ]]; then
+            echo "✅ Valid Cloud Run URL format"
+          else
+            echo "⚠ Invalid URL format, using fallback"
+            URL="https://${{ env.BACKEND_SERVICE_NAME }}-653276357733.${{ env.REGION }}.run.app"
+          fi
+          
+          echo "Final Backend URL: $URL"
           echo "url=$URL" >> $GITHUB_OUTPUT
+          
+          # Test the URL
+          echo "Testing backend URL..."
+          curl -f --max-time 10 "$URL/health" || echo "Health check failed for $URL"
 
       - name: Deploy streamlit to Cloud Run
         run: |
