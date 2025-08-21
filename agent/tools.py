@@ -13,33 +13,14 @@ from huggingface_hub import login as hf_login
 # Load environment variables
 load_dotenv()
 
-# Try to import ML dependencies, but don't fail if they're not available
-try:
-    from langchain.embeddings import HuggingFaceEmbeddings
-    from langchain.vectorstores import Chroma
-    from langchain.schema import Document
-    from sentence_transformers import CrossEncoder
-    from fuzzywuzzy import process
-    ML_DEPS_AVAILABLE = True
-    print("✅ ML dependencies imported successfully")
-except ImportError as e:
-    print(f"⚠ ML dependencies not available: {e}")
-    ML_DEPS_AVAILABLE = False
-    # Create dummy classes to prevent import errors
-    class HuggingFaceEmbeddings:
-        def __init__(self, *args, **kwargs):
-            pass
-    class Chroma:
-        def __init__(self, *args, **kwargs):
-            pass
-    class Document:
-        def __init__(self, *args, **kwargs):
-            pass
-    class CrossEncoder:
-        def __init__(self, *args, **kwargs):
-            pass
-    def process(*args, **kwargs):
-        return None
+# Import ML dependencies directly (Full ML setup)
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain.schema import Document
+from sentence_transformers import CrossEncoder
+from fuzzywuzzy import process
+
+print("✅ ML dependencies imported successfully")
 
 # Active user context
 active_user_id: Optional[str] = None
@@ -223,10 +204,6 @@ def get_items_in_restaurant(restaurant_id: str) -> List[dict]:
         return []
 
 def search_restaurant_by_name(name: str) -> List[dict]:
-    if not ML_DEPS_AVAILABLE:
-        print("⚠ ML dependencies not available for restaurant search")
-        return []
-    
     try:
         restaurants = []
         for doc in db.collection("categories").where("where", "==", "quweisna").stream():
@@ -248,19 +225,20 @@ def search_restaurant_by_name(name: str) -> List[dict]:
 
 # --- Vectorstore Setup with Summarized Chunks ---
 device = 'cpu'
-embedding_model = None
+
+# Initialize embedding model
+try:
+    embedding_model = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        model_kwargs={'device': device}
+    )
+    print("✅ Embedding model initialized")
+except Exception as e:
+    print(f"⚠ Failed to initialize embedding model: {e}")
+    embedding_model = None
+
+# Initialize vectorstore
 vectorstore = None
-
-if ML_DEPS_AVAILABLE:
-    try:
-        embedding_model = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            model_kwargs={'device': device}
-        )
-        print("✅ Embedding model initialized")
-    except Exception as e:
-        print(f"⚠ Failed to initialize embedding model: {e}")
-
 if embedding_model:
     chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
     collection_name = "food_data"
@@ -281,7 +259,7 @@ if embedding_model:
 
 # Semantic Search Tool
 def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] = None, k: int = 20) -> List[dict]:
-    if not vectorstore or not ML_DEPS_AVAILABLE:
+    if not vectorstore:
         print("⚠ Vectorstore not available for semantic search")
         return []
     

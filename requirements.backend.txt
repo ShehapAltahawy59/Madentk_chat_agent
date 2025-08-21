@@ -2,9 +2,11 @@ fastapi
 uvicorn
 firebase-admin
 langchain-huggingface
+langchain-community
 chromadb
 sentence-transformers
 fuzzywuzzy
+python-Levenshtein
 numpy
 autogen-agentchat
 autogen-core
@@ -12,4 +14,5 @@ autogen-ext
 pydantic
 requests
 python-dotenv
-huggingface-hub 
+huggingface-hub
+torch 
