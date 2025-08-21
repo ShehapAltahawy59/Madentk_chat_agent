@@ -52,7 +52,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred_obj)
 
 # Login to Hugging Face Hub if token provided
-_hf_token = os.environ.get("HUGGINGFACE_HUB_TOKEN") or os.environ.get("HF_TOKEN")
+_hf_token = os.environ.get("HUGGINGFACE_HUB_TOKEN")
 if _hf_token:
     try:
         hf_login(token=_hf_token)
