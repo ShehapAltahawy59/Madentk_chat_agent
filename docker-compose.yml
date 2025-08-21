@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     environment:
       - CHROMA_DB_DIR=/data/chroma_db
-      - GOOGLE_APPLICATION_CREDENTIALS=${FIREBASE_SERVICE_ACCOUNT_JSON}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
     volumes:
       - chroma_data:/data/chroma_db
     ports:

@@ -54,11 +54,26 @@ jobs:
           TAG: ${{ steps.tags.outputs.TAG }}
           DOCKER_DEFAULT_PLATFORM: linux/amd64
         run: |
+          echo "Building images with Docker Compose..."
           docker compose build --parallel
+          echo "Pushing images to Docker Hub..."
           docker compose push
+          echo "Build and push completed"
+
+      - name: Verify images were pushed
+        run: |
+          echo "Verifying images were pushed to Docker Hub..."
+          docker pull ${{ steps.tags.outputs.backend_image }}
+          docker pull ${{ steps.tags.outputs.ui_image }}
+          echo "✅ Images verified and available"
 
       - name: Deploy backend to Cloud Run
         run: |
+          echo "Deploying backend to Cloud Run..."
+          echo "Image: ${{ steps.tags.outputs.backend_image }}"
+          echo "Service: ${{ env.BACKEND_SERVICE_NAME }}"
+          echo "Region: ${{ env.REGION }}"
+          
           gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
             --image=${{ steps.tags.outputs.backend_image }} \
             --region=${{ env.REGION }} \
@@ -67,7 +82,7 @@ jobs:
             --memory=1Gi \
             --cpu=1 \
             --timeout=300 \
-            --set-env-vars="PORT=8080,GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
+            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 
       - name: Get backend Service URL
         id: backend-url
@@ -75,10 +90,16 @@ jobs:
           URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
             --region ${{ env.REGION }} \
             --format 'value(status.url)')
+          echo "Backend URL: $URL"
           echo "url=$URL" >> $GITHUB_OUTPUT
 
       - name: Deploy streamlit to Cloud Run
         run: |
+          echo "Deploying streamlit to Cloud Run..."
+          echo "Image: ${{ steps.tags.outputs.ui_image }}"
+          echo "Service: ${{ env.STREAMLIT_SERVICE_NAME }}"
+          echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
+          
           gcloud run deploy ${{ env.STREAMLIT_SERVICE_NAME }} \
             --image=${{ steps.tags.outputs.ui_image }} \
             --region=${{ env.REGION }} \
@@ -90,14 +111,31 @@ jobs:
 
       - name: Echo service URLs
         run: |
+          echo "=== Service URLs ==="
           echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
           UI_URL=$(gcloud run services describe ${{ env.STREAMLIT_SERVICE_NAME }} --region ${{ env.REGION }} --format 'value(status.url)')
           echo "UI URL: ${UI_URL}"
+          echo "==================="
 
       - name: Test backend health (best-effort)
         run: |
           echo "Waiting for backend to be ready..." && sleep 30
+          echo "Testing backend health at: ${{ steps.backend-url.outputs.url }}"
           set +e
-          curl -f --max-time 30 "${{ steps.backend-url.outputs.url }}/ping" || \
-          curl -f --max-time 30 "${{ steps.backend-url.outputs.url }}/health" || true
-          set -e 
+          curl -v --max-time 30 "${{ steps.backend-url.outputs.url }}/health" || \
+          curl -v --max-time 30 "${{ steps.backend-url.outputs.url }}/" || \
+          echo "Health check failed"
+          set -e
+
+      - name: Debug container logs (if deployment fails)
+        if: failure()
+        run: |
+          echo "=== Debugging deployment failure ==="
+          echo "Checking service status..."
+          gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --format 'value(status.conditions[0].message)' || echo "Could not get service status"
+          
+          echo "Checking recent logs..."
+          gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.BACKEND_SERVICE_NAME }}" \
+            --limit=20 --format="value(timestamp,severity,textPayload)" || echo "Could not get logs" 
