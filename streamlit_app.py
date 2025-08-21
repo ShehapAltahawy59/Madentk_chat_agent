@@ -12,7 +12,7 @@ st.set_page_config(page_title="SmartFoodAgent Chat", page_icon="🍽️", layout
 # Sidebar configuration
 with st.sidebar:
     st.markdown("**Server**")
-    default_base_url = os.environ.get("CHAT_API_BASE_URL", "http://localhost:8000")
+    default_base_url = os.environ.get("CHAT_API_BASE_URL", "http://localhost:8080")
     base_url = st.text_input("FastAPI base URL", value=default_base_url, help="Where your FastAPI server is running")
     user_id = st.text_input("User ID (optional)")
     where_value = st.text_input("Where (optional)")

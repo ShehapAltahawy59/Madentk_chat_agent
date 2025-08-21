@@ -17,29 +17,29 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ env.PROJECT_ID }}
+    - name: Set up Google Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.PROJECT_ID }}
 
       - name: Prepare image tags
         id: tags
@@ -68,7 +68,7 @@ jobs:
           echo "✅ Images verified and available"
 
       - name: Deploy backend to Cloud Run
-        run: |
+      run: |
           echo "Deploying backend to Cloud Run..."
           echo "Image: ${{ steps.tags.outputs.backend_image }}"
           echo "Service: ${{ env.BACKEND_SERVICE_NAME }}"
@@ -76,25 +76,25 @@ jobs:
           
           gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
             --image=${{ steps.tags.outputs.backend_image }} \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --allow-unauthenticated \
+          --region=${{ env.REGION }} \
+          --platform=managed \
+          --allow-unauthenticated \
             --memory=1Gi \
-            --cpu=1 \
+          --cpu=1 \
             --timeout=300 \
-            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
+            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }},Gemini_API_KEY=${{ secrets.GEMINI_API_KEY }},HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 
       - name: Get backend Service URL
         id: backend-url
-        run: |
+      run: |
           URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --format 'value(status.url)')
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
           echo "Backend URL: $URL"
-          echo "url=$URL" >> $GITHUB_OUTPUT
+        echo "url=$URL" >> $GITHUB_OUTPUT
 
       - name: Deploy streamlit to Cloud Run
-        run: |
+      run: |
           echo "Deploying streamlit to Cloud Run..."
           echo "Image: ${{ steps.tags.outputs.ui_image }}"
           echo "Service: ${{ env.STREAMLIT_SERVICE_NAME }}"

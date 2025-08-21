@@ -8,7 +8,7 @@ load_dotenv()
 
 # --- Azure/OpenAI Setup ---
 
-api_key = os.environ.get("OPENAI_API_KEY", "")
+api_key = os.environ.get("Gemini_API_KEY", "")
 
 az_model_client = OpenAIChatCompletionClient(
     model="gemini-2.5-flash",
