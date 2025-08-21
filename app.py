@@ -15,7 +15,13 @@ except Exception as e:
     chat_router = None
 
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "message": "Service is running"}
