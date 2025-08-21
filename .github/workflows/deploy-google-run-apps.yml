@@ -41,7 +41,7 @@ jobs:
       with:
         project_id: ${{ env.PROJECT_ID }}
 
-      - name: Prepare image tags
+    - name: Prepare image tags
         id: tags
         run: |
           echo "TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
