@@ -22,17 +22,12 @@ with st.sidebar:
     else:
         default_base_url = env_url
     
-    base_url = st.text_input("FastAPI base URL", value=default_base_url, help="Where your FastAPI server is running")
+    base_url = default_base_url
     
     # Quick fix button for correct URL
-    if st.button("🔧 Use Correct Cloud Run URL", help="Use the correct Cloud Run backend URL"):
-        st.session_state.correct_url = "https://madentk-agents-api-653276357733.me-central1.run.app"
-        st.rerun()
     
-    # Apply the correct URL if button was clicked
-    if hasattr(st.session_state, 'correct_url'):
-        base_url = st.session_state.correct_url
-        st.success("✅ Using correct URL!")
+    
+   
     user_id = st.text_input("User ID (optional)")
     where_value = st.text_input("Where (optional)")
     st.markdown("---")
