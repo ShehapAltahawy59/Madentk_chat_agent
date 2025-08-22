@@ -43,17 +43,28 @@ def get_active_where() -> Optional[str]:
 # Initialize Firestore
 if not firebase_admin._apps:
     cred_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "foodorderapp.json")
-    # Accept either a file path or an inline JSON string
+    # Accept file path, base64 encoded JSON, or raw JSON string
     if os.path.isfile(cred_env):
         cred_obj = credentials.Certificate(cred_env)
+        print("✅ Using Firebase credentials from file")
     else:
         try:
-            cred_info = json.loads(cred_env)
+            # First try to decode as base64 (recommended for secrets)
+            import base64
+            decoded_cred = base64.b64decode(cred_env).decode('utf-8')
+            cred_info = json.loads(decoded_cred)
             cred_obj = credentials.Certificate(cred_info)
-        except json.JSONDecodeError:
-            raise ValueError(
-                "GOOGLE_APPLICATION_CREDENTIALS must be a valid file path or a JSON string."
-            )
+            print("✅ Using Firebase credentials from base64 encoded JSON")
+        except Exception:
+            try:
+                # Fallback to direct JSON parsing
+                cred_info = json.loads(cred_env)
+                cred_obj = credentials.Certificate(cred_info)
+                print("✅ Using Firebase credentials from raw JSON string")
+            except json.JSONDecodeError:
+                raise ValueError(
+                    "GOOGLE_APPLICATION_CREDENTIALS must be a valid file path, base64 encoded JSON, or raw JSON string."
+                )
     firebase_admin.initialize_app(cred_obj)
 
 # Login to Hugging Face Hub if token provided

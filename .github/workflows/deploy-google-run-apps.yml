@@ -76,9 +76,9 @@ jobs:
           
           gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
             --image=${{ steps.tags.outputs.backend_image }} \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --allow-unauthenticated \
+          --region=${{ env.REGION }} \
+          --platform=managed \
+          --allow-unauthenticated \
             --memory=4Gi \
             --cpu=2 \
             --timeout=1200 \
@@ -93,8 +93,8 @@ jobs:
       run: |
           # Get the service URL
           URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --format 'value(status.url)')
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
           
           echo "Raw Backend URL: $URL"
           
