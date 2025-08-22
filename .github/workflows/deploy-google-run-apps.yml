@@ -86,7 +86,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --execution-environment=gen2 \
-            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}" \
+            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}" \
             --set-env-vars="Gemini_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
             --set-env-vars="HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 

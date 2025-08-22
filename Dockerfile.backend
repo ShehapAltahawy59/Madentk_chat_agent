@@ -1,7 +1,9 @@
 FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 \
+    OMP_NUM_THREADS=1
 
 WORKDIR /app
 
@@ -30,7 +32,7 @@ EXPOSE 8080
 RUN echo '#!/bin/bash\n\
 echo "Starting FastAPI application..."\n\
 echo "PORT: ${PORT:-8080}"\n\
-echo "ML models will load on first request to reduce startup time"\n\
+echo "ML models are loaded at startup for better performance"\n\
 exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-keep-alive 300\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 

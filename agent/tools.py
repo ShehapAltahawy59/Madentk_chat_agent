@@ -9,6 +9,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 from huggingface_hub import login as hf_login
+import gc
 
 # Load environment variables
 load_dotenv()
@@ -20,7 +21,7 @@ from langchain.schema import Document
 from sentence_transformers import CrossEncoder
 from fuzzywuzzy import process
 
-print("✅ ML dependencies imported successfully (models will load on first use)")
+print("✅ ML dependencies imported successfully (models will load at startup)")
 
 # Active user context
 active_user_id: Optional[str] = None
@@ -243,60 +244,68 @@ def search_restaurant_by_name(name: str) -> List[dict]:
         print(f"⚠ Error searching restaurants by name: {e}")
         return []
 
-# --- Vectorstore Setup with Lazy Loading ---
+# --- Vectorstore Setup with Startup Loading ---
 device = 'cpu'
 embedding_model = None
 vectorstore = None
 
 def get_embedding_model():
-    """Lazy load embedding model on first use"""
+    """Get embedding model (loaded at startup)"""
     global embedding_model
-    if embedding_model is None:
-        try:
-            print("🔄 Loading embedding model (first use)...")
-            embedding_model = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-                model_kwargs={'device': device}
-            )
-            print("✅ Embedding model initialized")
-        except Exception as e:
-            print(f"⚠ Failed to initialize embedding model: {e}")
-            embedding_model = None
     return embedding_model
 
 def get_vectorstore():
-    """Lazy load vectorstore on first use"""
+    """Get vectorstore (loaded at startup)"""
     global vectorstore
-    if vectorstore is None:
-        emb_model = get_embedding_model()
-        if emb_model:
-            chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
-            collection_name = "food_data"
-            
-            print(f"🔍 Looking for Chroma DB at: {chroma_path}")
-            print(f"🔍 Path exists: {os.path.exists(chroma_path)}")
-            print(f"🔍 Is directory: {os.path.isdir(chroma_path) if os.path.exists(chroma_path) else False}")
-            
-            if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
-                try:
-                    print("🔄 Loading vectorstore (first use)...")
-                    vectorstore = Chroma(
-                        collection_name=collection_name,
-                        embedding_function=emb_model,
-                        persist_directory=chroma_path
-                    )
-                    print("✅ Vectorstore loaded from existing directory")
-                except Exception as e:
-                    print(f"⚠ Error loading vectorstore: {e}")
-                    vectorstore = None
-            else:
-                print(f"⚠ Chroma DB directory not found at {chroma_path}, vectorstore not initialized")
-                # List contents of current directory to debug
-                try:
-                    print(f"🔍 Current directory contents: {os.listdir('.')}")
-                except Exception as e:
-                    print(f"⚠ Could not list directory: {e}")
     return vectorstore
+
+# Initialize models at startup
+print("🔄 Initializing ML models at startup...")
+
+try:
+    print("🔄 Loading embedding model...")
+    embedding_model = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        model_kwargs={
+            'device': device
+        }
+    )
+    print("✅ Embedding model initialized")
+    
+    # Load vectorstore
+    chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
+    collection_name = "food_data"
+    
+    print(f"🔍 Looking for Chroma DB at: {chroma_path}")
+    print(f"🔍 Path exists: {os.path.exists(chroma_path)}")
+    print(f"🔍 Is directory: {os.path.isdir(chroma_path) if os.path.exists(chroma_path) else False}")
+    
+    if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
+        try:
+            print("🔄 Loading vectorstore...")
+            vectorstore = Chroma(
+                collection_name=collection_name,
+                embedding_function=embedding_model,
+                persist_directory=chroma_path
+            )
+            print("✅ Vectorstore loaded from existing directory")
+        except Exception as e:
+            print(f"⚠ Error loading vectorstore: {e}")
+            vectorstore = None
+    else:
+        print(f"⚠ Chroma DB directory not found at {chroma_path}, vectorstore not initialized")
+        # List contents of current directory to debug
+        try:
+            print(f"🔍 Current directory contents: {os.listdir('.')}")
+        except Exception as e:
+            print(f"⚠ Could not list directory: {e}")
+    
+    print("✅ ML models initialization completed")
+    
+except Exception as e:
+    print(f"⚠ Failed to initialize ML models: {e}")
+    embedding_model = None
+    vectorstore = None
 
 # Semantic Search Tool
 def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] = None, k: int = 20) -> List[dict]:
@@ -310,13 +319,34 @@ def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] =
         filters = {}
         if scope:
             filters["type"] = {"$eq": scope}
-        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k, fetch_k=40, filter=filters)
+        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k, fetch_k=20, filter=filters)
         if docs_local:
-            reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=device)
-            pairs = [(normalized_query, doc.page_content) for doc in docs_local]
-            scores = reranker.predict(pairs)
-            reranked = [docs_local[i] for i in np.argsort(scores)[::-1]]
-            docs_local = reranked[:k]
+            try:
+                print("🔄 Loading reranker model...")
+                reranker = CrossEncoder(
+                    "cross-encoder/ms-marco-MiniLM-L-6-v2", 
+                    device=device,
+                    max_length=512  # Limit sequence length to save memory
+                )
+                # Process in smaller batches to reduce memory usage
+                batch_size = 8
+                all_scores = []
+                for i in range(0, len(docs_local), batch_size):
+                    batch = docs_local[i:i + batch_size]
+                    pairs = [(normalized_query, doc.page_content) for doc in batch]
+                    batch_scores = reranker.predict(pairs)
+                    all_scores.extend(batch_scores)
+                
+                # Rerank based on scores
+                reranked = [docs_local[i] for i in np.argsort(all_scores)[::-1]]
+                docs_local = reranked[:k]
+                print("✅ Reranking completed")
+                # Clean up memory
+                del reranker
+                gc.collect()
+            except Exception as e:
+                print(f"⚠ Reranking failed, using original results: {e}")
+                docs_local = docs_local[:k]
         print(f"Semantic search for '{query}' (normalized: '{normalized_query}') returned {len(docs_local)} results")
         return [{"content": doc.page_content, "metadata": doc.metadata} for doc in docs_local]
     except Exception as e:
