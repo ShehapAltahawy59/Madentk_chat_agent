@@ -243,6 +243,67 @@ def search_restaurant_by_name(name: str) -> List[dict]:
         print(f"⚠ Error searching restaurants by name: {e}")
         return []
 
+def get_item_by_name(item_name: str, restaurant_id: Optional[str] = None) -> List[dict]:
+    """
+    Search for items by name using fuzzy matching.
+    Args:
+        item_name (str): The name of the item to search for
+        restaurant_id (Optional[str]): Optional restaurant ID to filter items
+    Returns:
+        List[dict]: List of matching items with their details
+    """
+    try:
+        # Get all items
+        query = db.collection("items")
+        if restaurant_id:
+            query = query.where("item_cat", "==", restaurant_id)
+        
+        items = []
+        for doc in query.stream():
+            item_data = doc.to_dict()
+            items.append(item_data)
+        
+        if not items:
+            print(f"⚠ No items found for restaurant: {restaurant_id}")
+            return []
+        
+        # Normalize search query
+        normalized_name = normalize_arabic(item_name)
+        matches = []
+        
+        for item in items:
+            # Get item names in both languages
+            name_en = normalize_arabic(item.get("name_en", "").strip().lower())
+            name_ar = normalize_arabic(item.get("name_ar", "").strip().lower())
+            
+            # Calculate similarity scores
+            score_en = process.extractOne(normalized_name, [name_en])[1] if name_en else 0
+            score_ar = process.extractOne(normalized_name, [name_ar])[1] if name_ar else 0
+            
+            # Use the higher score
+            best_score = max(score_en, score_ar)
+            
+            if best_score >= 70:  # Lower threshold for items since names can be longer
+                item_with_score = item.copy()
+                item_with_score['match_score'] = best_score
+                matches.append(item_with_score)
+        
+        # Sort by match score (highest first)
+        matches.sort(key=lambda x: x.get('match_score', 0), reverse=True)
+        
+        # Limit results to top 10 matches
+        matches = matches[:10]
+        
+        print(f"Fuzzy search for item '{item_name}' (normalized: '{normalized_name}') found {len(matches)} matches")
+        if matches:
+            print(f"Top matches: {[item.get('name_ar', item.get('name_en', '')) for item in matches[:3]]}")
+        
+        return matches
+        
+    except Exception as e:
+        print(f"⚠ Error searching items by name: {e}")
+        return []
+
 # --- Vectorstore Setup with Startup Loading ---
 device = 'cpu'
 embedding_model = None
