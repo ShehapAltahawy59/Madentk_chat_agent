@@ -55,15 +55,17 @@ if not firebase_admin._apps:
             cred_info = json.loads(decoded_cred)
             cred_obj = credentials.Certificate(cred_info)
             print("✅ Using Firebase credentials from base64 encoded JSON")
-        except Exception:
+        except Exception as e:
+            print(f"⚠ Base64 decode failed: {e}")
             try:
                 # Fallback to direct JSON parsing
                 cred_info = json.loads(cred_env)
                 cred_obj = credentials.Certificate(cred_info)
                 print("✅ Using Firebase credentials from raw JSON string")
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as json_e:
+                print(f"⚠ JSON parse failed: {json_e}")
                 raise ValueError(
-                    "GOOGLE_APPLICATION_CREDENTIALS must be a valid file path, base64 encoded JSON, or raw JSON string."
+                    f"GOOGLE_APPLICATION_CREDENTIALS must be a valid file path, base64 encoded JSON, or raw JSON string. Base64 error: {e}, JSON error: {json_e}"
                 )
     firebase_admin.initialize_app(cred_obj)
 
