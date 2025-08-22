@@ -43,6 +43,12 @@ def get_active_where() -> Optional[str]:
 # Initialize Firestore
 if not firebase_admin._apps:
     cred_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "foodorderapp.json")
+    
+    # Debug: Print what we received (first 100 chars)
+    print(f"🔍 Received GOOGLE_APPLICATION_CREDENTIALS length: {len(cred_env) if cred_env else 0}")
+    print(f"🔍 First 100 chars: {cred_env[:100] if cred_env else 'None'}")
+    print(f"🔍 Last 100 chars: {cred_env[-100:] if cred_env and len(cred_env) > 100 else 'None'}")
+    
     # Accept file path, base64 encoded JSON, or raw JSON string
     if os.path.isfile(cred_env):
         cred_obj = credentials.Certificate(cred_env)
@@ -64,6 +70,7 @@ if not firebase_admin._apps:
                 print("✅ Using Firebase credentials from raw JSON string")
             except json.JSONDecodeError as json_e:
                 print(f"⚠ JSON parse failed: {json_e}")
+                print(f"⚠ Raw cred_env content: '{cred_env}'")
                 raise ValueError(
                     f"GOOGLE_APPLICATION_CREDENTIALS must be a valid file path, base64 encoded JSON, or raw JSON string. Base64 error: {e}, JSON error: {json_e}"
                 )
@@ -266,6 +273,10 @@ def get_vectorstore():
             chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
             collection_name = "food_data"
             
+            print(f"🔍 Looking for Chroma DB at: {chroma_path}")
+            print(f"🔍 Path exists: {os.path.exists(chroma_path)}")
+            print(f"🔍 Is directory: {os.path.isdir(chroma_path) if os.path.exists(chroma_path) else False}")
+            
             if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
                 try:
                     print("🔄 Loading vectorstore (first use)...")
@@ -279,7 +290,12 @@ def get_vectorstore():
                     print(f"⚠ Error loading vectorstore: {e}")
                     vectorstore = None
             else:
-                print("⚠ Chroma DB directory not found, vectorstore not initialized")
+                print(f"⚠ Chroma DB directory not found at {chroma_path}, vectorstore not initialized")
+                # List contents of current directory to debug
+                try:
+                    print(f"🔍 Current directory contents: {os.listdir('.')}")
+                except Exception as e:
+                    print(f"⚠ Could not list directory: {e}")
     return vectorstore
 
 # Semantic Search Tool

@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY agent/ ./agent/
 COPY routes/ ./routes/
 COPY app.py ./
-
+COPY chroma_db/ /data/chroma_db/
 ENV CHROMA_DB_DIR=/data/chroma_db
 EXPOSE 8080
 
