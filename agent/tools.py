@@ -13,14 +13,14 @@ from huggingface_hub import login as hf_login
 # Load environment variables
 load_dotenv()
 
-# Import ML dependencies directly (Full ML setup)
+# Import ML dependencies directly (Full ML setup) - but delay heavy initialization
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 from sentence_transformers import CrossEncoder
 from fuzzywuzzy import process
 
-print("✅ ML dependencies imported successfully")
+print("✅ ML dependencies imported successfully (models will load on first use)")
 
 # Active user context
 active_user_id: Optional[str] = None
@@ -223,43 +223,56 @@ def search_restaurant_by_name(name: str) -> List[dict]:
         print(f"⚠ Error searching restaurants by name: {e}")
         return []
 
-# --- Vectorstore Setup with Summarized Chunks ---
+# --- Vectorstore Setup with Lazy Loading ---
 device = 'cpu'
-
-# Initialize embedding model
-try:
-    embedding_model = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        model_kwargs={'device': device}
-    )
-    print("✅ Embedding model initialized")
-except Exception as e:
-    print(f"⚠ Failed to initialize embedding model: {e}")
-    embedding_model = None
-
-# Initialize vectorstore
+embedding_model = None
 vectorstore = None
-if embedding_model:
-    chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
-    collection_name = "food_data"
 
-    if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
+def get_embedding_model():
+    """Lazy load embedding model on first use"""
+    global embedding_model
+    if embedding_model is None:
         try:
-            vectorstore = Chroma(
-                collection_name=collection_name,
-                embedding_function=embedding_model,
-                persist_directory=chroma_path
+            print("🔄 Loading embedding model (first use)...")
+            embedding_model = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                model_kwargs={'device': device}
             )
-            print("✅ Vectorstore loaded from existing directory")
+            print("✅ Embedding model initialized")
         except Exception as e:
-            print(f"⚠ Error loading vectorstore: {e}")
-            vectorstore = None
-    else:
-        print("⚠ Chroma DB directory not found, vectorstore not initialized")
+            print(f"⚠ Failed to initialize embedding model: {e}")
+            embedding_model = None
+    return embedding_model
+
+def get_vectorstore():
+    """Lazy load vectorstore on first use"""
+    global vectorstore
+    if vectorstore is None:
+        emb_model = get_embedding_model()
+        if emb_model:
+            chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
+            collection_name = "food_data"
+            
+            if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
+                try:
+                    print("🔄 Loading vectorstore (first use)...")
+                    vectorstore = Chroma(
+                        collection_name=collection_name,
+                        embedding_function=emb_model,
+                        persist_directory=chroma_path
+                    )
+                    print("✅ Vectorstore loaded from existing directory")
+                except Exception as e:
+                    print(f"⚠ Error loading vectorstore: {e}")
+                    vectorstore = None
+            else:
+                print("⚠ Chroma DB directory not found, vectorstore not initialized")
+    return vectorstore
 
 # Semantic Search Tool
 def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] = None, k: int = 20) -> List[dict]:
-    if not vectorstore:
+    vs = get_vectorstore()
+    if not vs:
         print("⚠ Vectorstore not available for semantic search")
         return []
     
@@ -268,7 +281,7 @@ def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] =
         filters = {}
         if scope:
             filters["type"] = {"$eq": scope}
-        docs_local = vectorstore.max_marginal_relevance_search(normalized_query, k=k, fetch_k=40, filter=filters)
+        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k, fetch_k=40, filter=filters)
         if docs_local:
             reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=device)
             pairs = [(normalized_query, doc.page_content) for doc in docs_local]

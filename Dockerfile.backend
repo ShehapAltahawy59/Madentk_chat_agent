@@ -26,12 +26,12 @@ COPY app.py ./
 ENV CHROMA_DB_DIR=/data/chroma_db
 EXPOSE 8080
 
-# Create a startup script to handle potential import errors
+# Create a startup script for fast startup
 RUN echo '#!/bin/bash\n\
 echo "Starting FastAPI application..."\n\
 echo "PORT: ${PORT:-8080}"\n\
-python -c "import app; print(\"App imported successfully\")" || echo "Warning: Some imports failed"\n\
-exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}\n\
+echo "ML models will load on first request to reduce startup time"\n\
+exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-keep-alive 300\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 CMD ["/app/start.sh"] 
