@@ -9,7 +9,6 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 from huggingface_hub import login as hf_login
-import gc
 
 # Load environment variables
 load_dotenv()
@@ -248,6 +247,7 @@ def search_restaurant_by_name(name: str) -> List[dict]:
 device = 'cpu'
 embedding_model = None
 vectorstore = None
+reranker_model = None
 
 def get_embedding_model():
     """Get embedding model (loaded at startup)"""
@@ -258,6 +258,11 @@ def get_vectorstore():
     """Get vectorstore (loaded at startup)"""
     global vectorstore
     return vectorstore
+
+def get_reranker():
+    """Get reranker model (loaded at startup)"""
+    global reranker_model
+    return reranker_model
 
 # Initialize models at startup
 print("🔄 Initializing ML models at startup...")
@@ -300,6 +305,19 @@ try:
         except Exception as e:
             print(f"⚠ Could not list directory: {e}")
     
+    # Load CrossEncoder reranker
+    try:
+        print("🔄 Loading CrossEncoder reranker...")
+        reranker_model = CrossEncoder(
+            "cross-encoder/ms-marco-MiniLM-L-6-v2", 
+            device=device,
+            max_length=512  # Limit sequence length to save memory
+        )
+        print("✅ CrossEncoder reranker initialized")
+    except Exception as e:
+        print(f"⚠ Failed to initialize CrossEncoder reranker: {e}")
+        reranker_model = None
+    
     print("✅ ML models initialization completed")
     
 except Exception as e:
@@ -319,33 +337,30 @@ def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] =
         filters = {}
         if scope:
             filters["type"] = {"$eq": scope}
-        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k, fetch_k=20, filter=filters)
+        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k, fetch_k=40, filter=filters)
         if docs_local:
-            try:
-                print("🔄 Loading reranker model...")
-                reranker = CrossEncoder(
-                    "cross-encoder/ms-marco-MiniLM-L-6-v2", 
-                    device=device,
-                    max_length=512  # Limit sequence length to save memory
-                )
-                # Process in smaller batches to reduce memory usage
-                batch_size = 8
-                all_scores = []
-                for i in range(0, len(docs_local), batch_size):
-                    batch = docs_local[i:i + batch_size]
-                    pairs = [(normalized_query, doc.page_content) for doc in batch]
-                    batch_scores = reranker.predict(pairs)
-                    all_scores.extend(batch_scores)
-                
-                # Rerank based on scores
-                reranked = [docs_local[i] for i in np.argsort(all_scores)[::-1]]
-                docs_local = reranked[:k]
-                print("✅ Reranking completed")
-                # Clean up memory
-                del reranker
-                gc.collect()
-            except Exception as e:
-                print(f"⚠ Reranking failed, using original results: {e}")
+            reranker = get_reranker()
+            if reranker:
+                try:
+                    print("🔄 Running reranking...")
+                    # Process in smaller batches to reduce memory usage
+                    batch_size = 8
+                    all_scores = []
+                    for i in range(0, len(docs_local), batch_size):
+                        batch = docs_local[i:i + batch_size]
+                        pairs = [(normalized_query, doc.page_content) for doc in batch]
+                        batch_scores = reranker.predict(pairs)
+                        all_scores.extend(batch_scores)
+                    
+                    # Rerank based on scores
+                    reranked = [docs_local[i] for i in np.argsort(all_scores)[::-1]]
+                    docs_local = reranked[:k]
+                    print("✅ Reranking completed")
+                except Exception as e:
+                    print(f"⚠ Reranking failed, using original results: {e}")
+                    docs_local = docs_local[:k]
+            else:
+                print("⚠ Reranker not available, using original results")
                 docs_local = docs_local[:k]
         print(f"Semantic search for '{query}' (normalized: '{normalized_query}') returned {len(docs_local)} results")
         return [{"content": doc.page_content, "metadata": doc.metadata} for doc in docs_local]
