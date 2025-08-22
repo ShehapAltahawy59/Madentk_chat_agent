@@ -278,12 +278,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Streamlit**: For the beautiful UI framework
 - **Google Cloud**: For the reliable cloud infrastructure
 
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
-- **Documentation**: [Wiki](https://github.com/your-repo/wiki)
-- **Email**: your-email@example.com
-
 ---
 
 **Made with ❤️ for the Arabic-speaking community**
