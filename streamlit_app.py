@@ -29,7 +29,16 @@ with st.sidebar:
     
    
     user_id = st.text_input("User ID (optional)")
-    where_value = st.text_input("Where (optional)")
+    
+    # Location selection
+    st.markdown("**Location**")
+    location_options = ["quweisna", "AboHammad", "KafrShokr"]
+    where_value = st.selectbox(
+        "Select your location",
+        options=location_options,
+        index=0,  # Default to quweisna
+        help="Choose your delivery location"
+    )
     st.markdown("---")
     if st.button("Clear chat", use_container_width=True):
         st.session_state.pop("chat_history", None)
@@ -39,7 +48,16 @@ with st.sidebar:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history: List[List[Optional[str]]] = []
 
+# Track location changes
+if "current_location" not in st.session_state:
+    st.session_state.current_location = where_value
+elif st.session_state.current_location != where_value:
+    st.session_state.current_location = where_value
+    st.session_state.chat_history = []  # Clear history when location changes
+    st.rerun()
+
 st.title("SmartFoodAgent Chat")
+st.info(f"📍 Current location: **{where_value}** - Only restaurants and items from this location will be shown")
 
 # Render existing conversation
 for user_msg, assistant_msg in st.session_state.chat_history:
@@ -62,13 +80,15 @@ if prompt:
     payload = {
         "user_query": prompt,
         "history": st.session_state.chat_history,
+        "where": where_value,  # Always send where value
     }
     if user_id:
         payload["user_id"] = user_id
-    if where_value:
-        payload["where"] = where_value
-    else:
-        payload["where"] = "quweisna"
+    
+    # Debug: Show what we're sending
+    st.sidebar.markdown("**Debug Info**")
+    st.sidebar.text(f"Location: {where_value}")
+    st.sidebar.text(f"User ID: {user_id or 'None'}")
 
     # Call the /chat endpoint
     try:

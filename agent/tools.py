@@ -194,9 +194,18 @@ def get_user_by_id(user_id: str) -> dict:
 
 def get_restaurant_by_id(restaurant_id: str) -> dict:
     try:
+        ctx_where = get_active_where() or "quweisna"
+        print(f"🔍 Getting restaurant {restaurant_id} in location: {ctx_where}")
+        
         doc = db.collection("categories").document(restaurant_id).get()
         if doc.exists:
-            return doc.to_dict()
+            restaurant_data = doc.to_dict()
+            # Check if the restaurant is in the correct location
+            if restaurant_data.get("where") == ctx_where:
+                return restaurant_data
+            else:
+                print(f"⚠ Restaurant {restaurant_id} not found in location {ctx_where}")
+                return None
         return None
     except Exception as e:
         print(f"⚠ Error fetching restaurant: {e}")
@@ -204,12 +213,30 @@ def get_restaurant_by_id(restaurant_id: str) -> dict:
 
 def get_item_by_id(item_id: str, restaurant_id: Optional[str] = None) -> dict:
     try:
+        ctx_where = get_active_where() or "quweisna"
+        print(f"🔍 Getting item {item_id} in location: {ctx_where}")
+        
         query = db.collection("items").where("item_id", "==", item_id)
         if restaurant_id:
             query = query.where("item_cat", "==", restaurant_id)
+        
         doc = next(query.stream(), None)
         if doc:
-            return doc.to_dict()
+            item_data = doc.to_dict()
+            item_restaurant_id = item_data.get("item_cat", "")
+            
+            # Check if the item's restaurant is in the current location
+            restaurant_doc = db.collection("categories").document(item_restaurant_id).get()
+            if restaurant_doc.exists:
+                restaurant_data = restaurant_doc.to_dict()
+                if restaurant_data.get("where") == ctx_where:
+                    return item_data
+                else:
+                    print(f"⚠ Item {item_id} not in location {ctx_where}")
+                    return None
+            else:
+                print(f"⚠ Restaurant {item_restaurant_id} not found for item {item_id}")
+                return None
         return None
     except Exception as e:
         print(f"⚠ Error fetching item: {e}")
@@ -217,6 +244,20 @@ def get_item_by_id(item_id: str, restaurant_id: Optional[str] = None) -> dict:
 
 def get_items_in_restaurant(restaurant_id: str) -> List[dict]:
     try:
+        ctx_where = get_active_where() or "quweisna"
+        print(f"🔍 Getting items for restaurant {restaurant_id} in location: {ctx_where}")
+        
+        # Check if restaurant is in the current location
+        restaurant_doc = db.collection("categories").document(restaurant_id).get()
+        if not restaurant_doc.exists:
+            print(f"⚠ Restaurant {restaurant_id} not found")
+            return []
+        
+        restaurant_data = restaurant_doc.to_dict()
+        if restaurant_data.get("where") != ctx_where:
+            print(f"⚠ Restaurant {restaurant_id} not in location {ctx_where}")
+            return []
+        
         query = db.collection("items").where("item_cat", "==", restaurant_id).stream()
         return [doc.to_dict() for doc in query]
     except Exception as e:
@@ -225,8 +266,10 @@ def get_items_in_restaurant(restaurant_id: str) -> List[dict]:
 
 def search_restaurant_by_name(name: str) -> List[dict]:
     try:
+        ctx_where = get_active_where() or "quweisna"
+        print(f"🔍 Searching restaurants in location: {ctx_where}")
         restaurants = []
-        for doc in db.collection("categories").where("where", "==", "quweisna").stream():
+        for doc in db.collection("categories").where("where", "==", ctx_where).stream():
             restaurants.append(doc.to_dict())
         normalized_name = normalize_arabic(name)
         matches = []
@@ -237,7 +280,7 @@ def search_restaurant_by_name(name: str) -> List[dict]:
             score_ar = process.extractOne(normalized_name, [name_ar])[1] if name_ar else 0
             if score_en >= 80 or score_ar >= 80:
                 matches.append(rest)
-        print(f"Direct search for '{name}' (normalized: '{normalized_name}') found: {[r.get('name_ar', '') for r in matches]}")
+        print(f"Direct search for '{name}' (normalized: '{normalized_name}') in {ctx_where} found: {[r.get('name_ar', '') for r in matches]}")
         return matches
     except Exception as e:
         print(f"⚠ Error searching restaurants by name: {e}")
@@ -254,14 +297,26 @@ def get_item_by_name(item_name: str, restaurant_id: Optional[str] = None) -> Lis
     """
     try:
         # Get all items
-        query = db.collection("items")
-        if restaurant_id:
-            query = query.where("item_cat", "==", restaurant_id)
+        ctx_where = get_active_where() or "quweisna"
+        print(f"🔍 Searching items in location: {ctx_where}")
         
+        # First get restaurants in the current location
+        restaurant_ids = []
+        for doc in db.collection("categories").where("where", "==", ctx_where).stream():
+            restaurant_ids.append(doc.id)
+        
+        if not restaurant_ids:
+            print(f"⚠ No restaurants found in location: {ctx_where}")
+            return []
+        
+        # Get items from restaurants in the current location
         items = []
-        for doc in query.stream():
-            item_data = doc.to_dict()
-            items.append(item_data)
+        for restaurant_id in restaurant_ids:
+            query = db.collection("items").where("item_cat", "==", restaurant_id)
+            
+            for doc in query.stream():
+                item_data = doc.to_dict()
+                items.append(item_data)
         
         if not items:
             print(f"⚠ No items found for restaurant: {restaurant_id}")
@@ -325,6 +380,135 @@ def get_reranker():
     global reranker_model
     return reranker_model
 
+def create_vector_database():
+    """
+    Create and populate the vector database with documents from Firebase.
+    This function fetches restaurants and items from Firestore and creates
+    embeddings for semantic search.
+    """
+    try:
+        print("🔄 Creating vector database...")
+        
+        # Get embedding model
+        embedding_model = get_embedding_model()
+        if not embedding_model:
+            print("⚠ Embedding model not available")
+            return False
+        
+        # Prepare documents
+        documents = []
+        
+        # Add restaurant documents
+        print("🔄 Fetching restaurants...")
+        restaurants = []
+        for doc in db.collection("categories").stream():
+            restaurants.append(doc.to_dict())
+        
+        for restaurant in restaurants:
+            # Create restaurant document
+            content_parts = []
+            if restaurant.get("name_en"):
+                content_parts.append(f"Restaurant: {restaurant['name_en']}")
+            if restaurant.get("name_ar"):
+                content_parts.append(f"مطعم: {restaurant['name_ar']}")
+            if restaurant.get("description_en"):
+                content_parts.append(f"Description: {restaurant['description_en']}")
+            if restaurant.get("description_ar"):
+                content_parts.append(f"الوصف: {restaurant['description_ar']}")
+            
+            if content_parts:
+                doc = Document(
+                    page_content=" | ".join(content_parts),
+                    metadata={
+                        "type": "restaurant",
+                        "restaurant_id": restaurant.get("id", ""),
+                        "name_en": restaurant.get("name_en", ""),
+                        "name_ar": restaurant.get("name_ar", ""),
+                        "description_en": restaurant.get("description_en", ""),
+                        "description_ar": restaurant.get("description_ar", ""),
+                        "where": restaurant.get("where", "")  # Use actual where from data
+                    }
+                )
+                documents.append(doc)
+        
+        # Add item documents
+        print("🔄 Fetching items...")
+        items = []
+        for doc in db.collection("items").stream():
+            items.append(doc.to_dict())
+        
+        # Get restaurant where mapping
+        restaurant_where_map = {}
+        for doc in db.collection("categories").stream():
+            restaurant_data = doc.to_dict()
+            restaurant_where_map[doc.id] = restaurant_data.get("where", "")
+        
+        for item in items:
+            # Get restaurant's where value
+            restaurant_id = item.get("item_cat", "")
+            item_where = restaurant_where_map.get(restaurant_id, "")
+            
+            # Create item document
+            content_parts = []
+            if item.get("name_en"):
+                content_parts.append(f"Item: {item['name_en']}")
+            if item.get("name_ar"):
+                content_parts.append(f"الوجبة: {item['name_ar']}")
+            if item.get("description_en"):
+                content_parts.append(f"Description: {item['description_en']}")
+            if item.get("description_ar"):
+                content_parts.append(f"الوصف: {item['description_ar']}")
+            if item.get("price"):
+                content_parts.append(f"Price: {item['price']}")
+            
+            if content_parts:
+                doc = Document(
+                    page_content=" | ".join(content_parts),
+                    metadata={
+                        "type": "item",
+                        "item_id": item.get("item_id", ""),
+                        "restaurant_id": item.get("item_cat", ""),
+                        "name_en": item.get("name_en", ""),
+                        "name_ar": item.get("name_ar", ""),
+                        "description_en": item.get("description_en", ""),
+                        "description_ar": item.get("description_ar", ""),
+                        "price": item.get("price", ""),
+                        "where": item_where  # Use restaurant's where value
+                    }
+                )
+                documents.append(doc)
+        
+        print(f"🔄 Created {len(documents)} documents from all locations")
+        
+        # Create vectorstore
+        chroma_path = os.environ.get("CHROMA_DB_DIR", "chroma_db")
+        collection_name = "food_data"
+        
+        # Remove existing directory if it exists
+        import shutil
+        if os.path.exists(chroma_path):
+            shutil.rmtree(chroma_path)
+            print(f"🔄 Removed existing Chroma DB at {chroma_path}")
+        
+        # Create new vectorstore
+        vectorstore = Chroma.from_documents(
+            documents=documents,
+            embedding=embedding_model,
+            collection_name=collection_name,
+            persist_directory=chroma_path
+        )
+        
+        # Persist the database
+        vectorstore.persist()
+        
+        print(f"✅ Vector database created successfully with {len(documents)} documents from all locations")
+        return True
+        
+    except Exception as e:
+        print(f"⚠ Error creating vector database: {e}")
+        return False
+
+
 # Initialize models at startup
 print("🔄 Initializing ML models at startup...")
 
@@ -359,12 +543,28 @@ try:
             print(f"⚠ Error loading vectorstore: {e}")
             vectorstore = None
     else:
-        print(f"⚠ Chroma DB directory not found at {chroma_path}, vectorstore not initialized")
-        # List contents of current directory to debug
-        try:
-            print(f"🔍 Current directory contents: {os.listdir('.')}")
-        except Exception as e:
-            print(f"⚠ Could not list directory: {e}")
+        print(f"⚠ Chroma DB directory not found at {chroma_path}")
+        # Create the vector database
+        if create_vector_database():
+            try:
+                print("🔄 Loading newly created vectorstore...")
+                vectorstore = Chroma(
+                    collection_name=collection_name,
+                    embedding_function=embedding_model,
+                    persist_directory=chroma_path
+                )
+                print("✅ Vectorstore loaded from newly created directory")
+            except Exception as e:
+                print(f"⚠ Error loading newly created vectorstore: {e}")
+                vectorstore = None
+        else:
+            print("⚠ Failed to create vector database")
+            vectorstore = None
+            # List contents of current directory to debug
+            try:
+                print(f"🔍 Current directory contents: {os.listdir('.')}")
+            except Exception as e:
+                print(f"⚠ Could not list directory: {e}")
     
     # Load CrossEncoder reranker
     try:
@@ -395,10 +595,24 @@ def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] =
     
     try:
         normalized_query = normalize_arabic(query)
-        filters = {}
-        if scope:
-            filters["type"] = {"$eq": scope}
-        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k, fetch_k=40, filter=filters)
+        ctx_where = get_active_where() or "quweisna"
+        
+        print(f"🔍 Active where context: {ctx_where}")
+        
+        # First retrieval: by location
+        where_filters = {"where": {"$eq": ctx_where}}
+        print(f"🔍 First retrieval with where filter: {where_filters}")
+        docs_local = vs.max_marginal_relevance_search(normalized_query, k=k*2, fetch_k=80, filter=where_filters)
+        
+        # Second filtering: by scope if specified
+        if scope and docs_local:
+            print(f"🔍 Second filtering by scope: {scope}")
+            filtered_docs = []
+            for doc in docs_local:
+                if doc.metadata.get("type") == scope:
+                    filtered_docs.append(doc)
+            docs_local = filtered_docs[:k]  # Limit to requested k
+            print(f"🔍 After scope filtering: {len(docs_local)} results")
         if docs_local:
             reranker = get_reranker()
             if reranker:

@@ -23,6 +23,10 @@ async def chat(request: ChatRequest):
     # Store active user id and where (available to tools and agent via tool)
     tools_module.set_active_user_id(request.user_id)
     tools_module.set_active_where(request.where)
+    
+    # Debug: Print the active context
+    print(f"🔍 Setting active context - user_id: {request.user_id}, where: {request.where}")
+    print(f"🔍 Active context after setting - user_id: {tools_module.get_active_user_id()}, where: {tools_module.get_active_where()}")
 
     messages = []
     for pair in history[-5:]:
