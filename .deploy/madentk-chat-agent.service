@@ -19,9 +19,9 @@ SyslogIdentifier=madentk-chat-agent
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=__APP_DIR__ /var/log/madentk-chat-agent /data
+ProtectSystem=false
+ProtectHome=false
+ReadWritePaths=__APP_DIR__ /var/log/madentk-chat-agent /data /tmp
 
 [Install]
 WantedBy=multi-user.target
