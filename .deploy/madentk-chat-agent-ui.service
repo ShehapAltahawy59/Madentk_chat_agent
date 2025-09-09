@@ -9,19 +9,12 @@ Group=__RUN_USER__
 WorkingDirectory=__APP_DIR__
 Environment=PATH=__APP_DIR__/madentk-chat-agent-venv/bin
 EnvironmentFile=/etc/madentk-chat-agent-ui.env
-ExecStart=__APP_DIR__/madentk-chat-agent-venv/bin/streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8502
+ExecStart=/bin/bash __APP_DIR__/start-ui.sh
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=madentk-chat-agent-ui
-
-# Security settings
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=false
-ProtectHome=false
-ReadWritePaths=__APP_DIR__ /var/log/madentk-chat-agent-ui /tmp
 
 [Install]
 WantedBy=multi-user.target
