@@ -50,9 +50,23 @@ jobs:
 
             echo "Setting up virtual environment..."
             if [ ! -d "madentk-chat-agent-venv" ]; then
+              echo "Creating virtual environment..."
               python3 -m venv madentk-chat-agent-venv
+              if [ $? -ne 0 ]; then
+                echo "Failed to create virtual environment"
+                exit 1
+              fi
+            else
+              echo "Virtual environment already exists"
             fi
-            . madentk-chat-agent-venv/bin/activate
+            
+            echo "Activating virtual environment..."
+            source madentk-chat-agent-venv/bin/activate
+            if [ $? -ne 0 ]; then
+              echo "Failed to activate virtual environment"
+              exit 1
+            fi
+            echo "Virtual environment activated successfully"
 
             echo "Installing requirements..."
             pip install --upgrade pip
