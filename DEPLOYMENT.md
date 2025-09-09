@@ -43,7 +43,7 @@ Make sure these secrets are configured in your GitHub repository:
 The deployment will:
 
 1. Clone/update the repository to `/Madentk_chat_agent`
-2. Create Python virtual environment
+2. Create Python virtual environment (`madentk-chat-agent-venv`)
 3. Install requirements from `requirements.txt`
 4. Create systemd services for both backend and UI
 5. Set up environment files with secrets

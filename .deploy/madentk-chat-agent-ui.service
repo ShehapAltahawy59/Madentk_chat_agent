@@ -7,9 +7,9 @@ Type=simple
 User=__RUN_USER__
 Group=__RUN_USER__
 WorkingDirectory=__APP_DIR__
-Environment=PATH=__APP_DIR__/venv/bin
+Environment=PATH=__APP_DIR__/madentk-chat-agent-venv/bin
 EnvironmentFile=/etc/madentk-chat-agent-ui.env
-ExecStart=__APP_DIR__/venv/bin/streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8502
+ExecStart=__APP_DIR__/madentk-chat-agent-venv/bin/streamlit run streamlit_app.py --server.address 0.0.0.0 --server.port 8502
 Restart=always
 RestartSec=10
 StandardOutput=journal

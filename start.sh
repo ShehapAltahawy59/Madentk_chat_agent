@@ -4,9 +4,9 @@
 echo "Starting Chat Agent..."
 
 # Activate virtual environment if it exists
-if [ -d "venv" ]; then
+if [ -d "madentk-chat-agent-venv" ]; then
     echo "Activating virtual environment..."
-    source venv/bin/activate
+    source madentk-chat-agent-venv/bin/activate
 fi
 
 # Set environment variables

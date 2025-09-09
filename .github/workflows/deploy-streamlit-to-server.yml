@@ -49,10 +49,10 @@ jobs:
             fi
 
             echo "Setting up virtual environment..."
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
+            if [ ! -d "madentk-chat-agent-venv" ]; then
+              python3 -m venv madentk-chat-agent-venv
             fi
-            . venv/bin/activate
+            . madentk-chat-agent-venv/bin/activate
 
             echo "Installing requirements..."
             pip install --upgrade pip
