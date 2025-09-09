@@ -1,0 +1,120 @@
+name: Deploy Streamlit UI to Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      SERVER_IP: 173.212.251.191
+      PROJECT_DIR: Madentk_chat_agent
+      SERVICE_NAME: madentk-chat-agent-ui.service
+      APP_PORT: 8502
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install SSH client
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy to server and run setup
+        env:
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PASS: ${{ secrets.SERVER_PASS }}
+          REPO_URL: "https://github.com/ShehapAltahawy59/Madentk_chat_agent"
+        run: |
+          echo "Copying service template to server..."
+          sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no ./.deploy/madentk-chat-agent-ui.service "$SERVER_USER@$SERVER_IP:/tmp/madentk-chat-agent-ui.service"
+
+          echo "Connecting to server..."
+          sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_IP" "PROJECT_DIR='$PROJECT_DIR' SERVICE_NAME='${SERVICE_NAME:-madentk-chat-agent-ui.service}' REPO_URL='$REPO_URL' CHAT_API_BASE_URL='http://173.212.251.191:8001' bash -s" << 'EOF'
+            set -e
+            echo "Updating repo..."
+            if [ ! -d "$PROJECT_DIR" ]; then
+              mkdir -p "$PROJECT_DIR"
+            fi
+            cd "$PROJECT_DIR"
+
+            if [ ! -d ".git" ]; then
+              echo "Cloning repository for the first time..."
+              git clone "$REPO_URL" .
+            else
+              git fetch --all --prune
+              git reset --hard origin/main
+            fi
+
+            echo "Setting up virtual environment..."
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            . venv/bin/activate
+
+            echo "Installing requirements..."
+            pip install --upgrade pip
+            if [ -f requirements.streamlit.txt ]; then
+              pip install -r requirements.streamlit.txt
+            elif [ -f requirements.txt ]; then
+              pip install -r requirements.txt
+            else
+              echo "requirements files not found; skipping."
+            fi
+
+            # Ensure start-ui.sh is executable if present
+            if [ -f start-ui.sh ]; then
+              chmod +x start-ui.sh
+            fi
+
+            echo "Ensuring systemd service exists..."
+            SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
+            APP_DIR="$(pwd)"
+
+            # Ensure env file exists with all necessary secrets
+            echo "Writing /etc/madentk-chat-agent-ui.env"
+            {
+              echo "CHAT_API_BASE_URL=${CHAT_API_BASE_URL:-http://173.212.251.191:8001}"
+            } | sudo tee /etc/madentk-chat-agent-ui.env > /dev/null
+            sudo chmod 600 /etc/madentk-chat-agent-ui.env
+
+            # Create log directory and set permissions
+            echo "Creating log directory"
+            sudo mkdir -p /var/log/madentk-chat-agent-ui
+            sudo chown $USER:$USER /var/log/madentk-chat-agent-ui
+            sudo chmod 755 /var/log/madentk-chat-agent-ui
+
+            if ! sudo test -f "$SERVICE_FILE"; then
+              echo "Creating $SERVICE_NAME at $SERVICE_FILE"
+              sudo sed -e "s|__APP_DIR__|$APP_DIR|g" \
+                         -e "s|__RUN_USER__|$USER|g" \
+                         /tmp/madentk-chat-agent-ui.service | sudo tee "$SERVICE_FILE" > /dev/null
+              sudo chmod 644 "$SERVICE_FILE"
+              sudo systemctl daemon-reload
+              sudo systemctl enable "$SERVICE_NAME"
+            else
+              echo "Service already exists; updating with latest template..."
+              sudo sed -e "s|__APP_DIR__|$APP_DIR|g" \
+                         -e "s|__RUN_USER__|$USER|g" \
+                         /tmp/madentk-chat-agent-ui.service | sudo tee "$SERVICE_FILE" > /dev/null
+              sudo chmod 644 "$SERVICE_FILE"
+              sudo systemctl daemon-reload
+            fi
+
+            echo "Restarting service..."
+            sudo systemctl daemon-reload || true
+            # Free port if any stray processes remain
+            sudo fuser -k 8502/tcp || true
+            sudo systemctl restart "$SERVICE_NAME"
+
+            echo "Deployment complete!"
+          EOF
+
+      - name: Publish service URL
+        id: publish-url
+        run: |
+          URL="http://${SERVER_IP}:${APP_PORT}"
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "Streamlit UI URL: ${URL}" >> $GITHUB_STEP_SUMMARY

@@ -1,163 +1,163 @@
-name: Deploy to Google Cloud Run (Compose-built)
+# name: Deploy to Google Cloud Run (Compose-built)
 
-on:
-  push:
-    branches: [ main, production ]
-  pull_request:
-    branches: [ main ]
+# on:
+#   push:
+#     branches: [ main, production ]
+#   pull_request:
+#     branches: [ main ]
 
-env:
-  PROJECT_ID: madentk-2025
-  REGION: me-central1
-  DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-  BACKEND_SERVICE_NAME: madentk-agents-api
-  STREAMLIT_SERVICE_NAME: madentk-agents-ui
+# env:
+#   PROJECT_ID: madentk-2025
+#   REGION: me-central1
+#   DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+#   BACKEND_SERVICE_NAME: madentk-agents-api
+#   STREAMLIT_SERVICE_NAME: madentk-agents-ui
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+# jobs:
+#   build-and-deploy:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 30
     
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+#     - name: Set up Docker Buildx
+#       uses: docker/setup-buildx-action@v3
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_HUB_USERNAME }}
-        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+#     - name: Log in to Docker Hub
+#       uses: docker/login-action@v3
+#       with:
+#         username: ${{ secrets.DOCKER_HUB_USERNAME }}
+#         password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+#     - name: Authenticate to Google Cloud
+#       uses: google-github-actions/auth@v2
+#       with:
+#         credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-    - name: Set up Google Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-      with:
-        project_id: ${{ env.PROJECT_ID }}
+#     - name: Set up Google Cloud SDK
+#       uses: google-github-actions/setup-gcloud@v2
+#       with:
+#         project_id: ${{ env.PROJECT_ID }}
 
-    - name: Prepare image tags
-      id: tags
-      run: |
-          echo "TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-          echo "backend_image=${{ env.DOCKER_HUB_USERNAME }}/madentk-agents-backend:${GITHUB_SHA}" >> $GITHUB_OUTPUT
-          echo "ui_image=${{ env.DOCKER_HUB_USERNAME }}/madentk-agents-ui:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+#     - name: Prepare image tags
+#       id: tags
+#       run: |
+#           echo "TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+#           echo "backend_image=${{ env.DOCKER_HUB_USERNAME }}/madentk-agents-backend:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+#           echo "ui_image=${{ env.DOCKER_HUB_USERNAME }}/madentk-agents-ui:${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-    - name: Build and push images with Docker Compose
-      env:
-        DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-        TAG: ${{ steps.tags.outputs.TAG }}
-        DOCKER_DEFAULT_PLATFORM: linux/amd64
-      run: |
-          echo "Building images with Docker Compose..."
-          docker compose build --parallel
-          echo "Pushing images to Docker Hub..."
-          docker compose push
-          echo "Build and push completed"
+#     - name: Build and push images with Docker Compose
+#       env:
+#         DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
+#         TAG: ${{ steps.tags.outputs.TAG }}
+#         DOCKER_DEFAULT_PLATFORM: linux/amd64
+#       run: |
+#           echo "Building images with Docker Compose..."
+#           docker compose build --parallel
+#           echo "Pushing images to Docker Hub..."
+#           docker compose push
+#           echo "Build and push completed"
 
-    - name: Verify images were pushed
-      run: |
-          echo "Verifying images were pushed to Docker Hub..."
-          docker pull ${{ steps.tags.outputs.backend_image }}
-          docker pull ${{ steps.tags.outputs.ui_image }}
-          echo "✅ Images verified and available"
+#     - name: Verify images were pushed
+#       run: |
+#           echo "Verifying images were pushed to Docker Hub..."
+#           docker pull ${{ steps.tags.outputs.backend_image }}
+#           docker pull ${{ steps.tags.outputs.ui_image }}
+#           echo "✅ Images verified and available"
 
-    - name: Deploy backend to Cloud Run
-      run: |
-          echo "Deploying backend to Cloud Run..."
-          echo "Image: ${{ steps.tags.outputs.backend_image }}"
-          echo "Service: ${{ env.BACKEND_SERVICE_NAME }}"
-          echo "Region: ${{ env.REGION }}"
+#     - name: Deploy backend to Cloud Run
+#       run: |
+#           echo "Deploying backend to Cloud Run..."
+#           echo "Image: ${{ steps.tags.outputs.backend_image }}"
+#           echo "Service: ${{ env.BACKEND_SERVICE_NAME }}"
+#           echo "Region: ${{ env.REGION }}"
           
-          gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
-            --image=${{ steps.tags.outputs.backend_image }} \
-          --region=${{ env.REGION }} \
-          --platform=managed \
-          --allow-unauthenticated \
-            --memory=4Gi \
-            --cpu=2 \
-            --timeout=1200 \
-            --concurrency=1 \
-            --min-instances=0 \
-            --max-instances=3 \
-            --execution-environment=gen2 \
-            --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}" \
-            --set-env-vars="Gemini_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
-            --set-env-vars="HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
+#           gcloud run deploy ${{ env.BACKEND_SERVICE_NAME }} \
+#             --image=${{ steps.tags.outputs.backend_image }} \
+#           --region=${{ env.REGION }} \
+#           --platform=managed \
+#           --allow-unauthenticated \
+#             --memory=4Gi \
+#             --cpu=2 \
+#             --timeout=1200 \
+#             --concurrency=1 \
+#             --min-instances=0 \
+#             --max-instances=3 \
+#             --execution-environment=gen2 \
+#             --set-env-vars="GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}" \
+#             --set-env-vars="Gemini_API_KEY=${{ secrets.GEMINI_API_KEY }}" \
+#             --set-env-vars="HUGGINGFACE_HUB_TOKEN=${{ secrets.HUGGINGFACE_HUB_TOKEN }}"
 
-    - name: Get backend Service URL
-      id: backend-url
-      run: |
-          # Get the service URL
-          URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
-          --region ${{ env.REGION }} \
-          --format 'value(status.url)')
+#     - name: Get backend Service URL
+#       id: backend-url
+#       run: |
+#           # Get the service URL
+#           URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
+#           --region ${{ env.REGION }} \
+#           --format 'value(status.url)')
           
-          echo "Raw Backend URL: $URL"
+#           echo "Raw Backend URL: $URL"
           
-          # Validate URL format
-          if [[ $URL =~ ^https://.*\.run\.app$ ]]; then
-            echo "✅ Valid Cloud Run URL format"
-          else
-            echo "⚠ Invalid URL format, using fallback"
-            URL="https://${{ env.BACKEND_SERVICE_NAME }}-653276357733.${{ env.REGION }}.run.app"
-          fi
+#           # Validate URL format
+#           if [[ $URL =~ ^https://.*\.run\.app$ ]]; then
+#             echo "✅ Valid Cloud Run URL format"
+#           else
+#             echo "⚠ Invalid URL format, using fallback"
+#             URL="https://${{ env.BACKEND_SERVICE_NAME }}-653276357733.${{ env.REGION }}.run.app"
+#           fi
           
-          echo "Final Backend URL: $URL"
-          echo "url=$URL" >> $GITHUB_OUTPUT
+#           echo "Final Backend URL: $URL"
+#           echo "url=$URL" >> $GITHUB_OUTPUT
           
-          # Test the URL
-          echo "Testing backend URL..."
-          curl -f --max-time 10 "$URL/health" || echo "Health check failed for $URL"
+#           # Test the URL
+#           echo "Testing backend URL..."
+#           curl -f --max-time 10 "$URL/health" || echo "Health check failed for $URL"
 
-    - name: Deploy streamlit to Cloud Run
-      run: |
-          echo "Deploying streamlit to Cloud Run..."
-          echo "Image: ${{ steps.tags.outputs.ui_image }}"
-          echo "Service: ${{ env.STREAMLIT_SERVICE_NAME }}"
-          echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
+#     - name: Deploy streamlit to Cloud Run
+#       run: |
+#           echo "Deploying streamlit to Cloud Run..."
+#           echo "Image: ${{ steps.tags.outputs.ui_image }}"
+#           echo "Service: ${{ env.STREAMLIT_SERVICE_NAME }}"
+#           echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
           
-          gcloud run deploy ${{ env.STREAMLIT_SERVICE_NAME }} \
-            --image=${{ steps.tags.outputs.ui_image }} \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --allow-unauthenticated \
-            --memory=512Mi \
-            --cpu=1 \
-            --set-env-vars="CHAT_API_BASE_URL=${{ steps.backend-url.outputs.url }}"
+#           gcloud run deploy ${{ env.STREAMLIT_SERVICE_NAME }} \
+#             --image=${{ steps.tags.outputs.ui_image }} \
+#             --region=${{ env.REGION }} \
+#             --platform=managed \
+#             --allow-unauthenticated \
+#             --memory=512Mi \
+#             --cpu=1 \
+#             --set-env-vars="CHAT_API_BASE_URL=${{ steps.backend-url.outputs.url }}"
 
-    - name: Echo service URLs
-      run: |
-          echo "=== Service URLs ==="
-          echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
-          UI_URL=$(gcloud run services describe ${{ env.STREAMLIT_SERVICE_NAME }} --region ${{ env.REGION }} --format 'value(status.url)')
-          echo "UI URL: ${UI_URL}"
-          echo "==================="
+#     - name: Echo service URLs
+#       run: |
+#           echo "=== Service URLs ==="
+#           echo "Backend URL: ${{ steps.backend-url.outputs.url }}"
+#           UI_URL=$(gcloud run services describe ${{ env.STREAMLIT_SERVICE_NAME }} --region ${{ env.REGION }} --format 'value(status.url)')
+#           echo "UI URL: ${UI_URL}"
+#           echo "==================="
 
-    - name: Test backend health (best-effort)
-      run: |
-          echo "Waiting for backend to be ready..." && sleep 30
-          echo "Testing backend health at: ${{ steps.backend-url.outputs.url }}"
-          set +e
-          curl -v --max-time 30 "${{ steps.backend-url.outputs.url }}/health" || \
-          curl -v --max-time 30 "${{ steps.backend-url.outputs.url }}/" || \
-          echo "Health check failed"
-          set -e
+#     - name: Test backend health (best-effort)
+#       run: |
+#           echo "Waiting for backend to be ready..." && sleep 30
+#           echo "Testing backend health at: ${{ steps.backend-url.outputs.url }}"
+#           set +e
+#           curl -v --max-time 30 "${{ steps.backend-url.outputs.url }}/health" || \
+#           curl -v --max-time 30 "${{ steps.backend-url.outputs.url }}/" || \
+#           echo "Health check failed"
+#           set -e
 
-    - name: Debug container logs (if deployment fails)
-      if: failure()
-      run: |
-          echo "=== Debugging deployment failure ==="
-          echo "Checking service status..."
-          gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --format 'value(status.conditions[0].message)' || echo "Could not get service status"
+#     - name: Debug container logs (if deployment fails)
+#       if: failure()
+#       run: |
+#           echo "=== Debugging deployment failure ==="
+#           echo "Checking service status..."
+#           gcloud run services describe ${{ env.BACKEND_SERVICE_NAME }} \
+#             --region ${{ env.REGION }} \
+#             --format 'value(status.conditions[0].message)' || echo "Could not get service status"
           
-          echo "Checking recent logs..."
-          gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.BACKEND_SERVICE_NAME }}" \
-            --limit=20 --format="value(timestamp,severity,textPayload)" || echo "Could not get logs"
+#           echo "Checking recent logs..."
+#           gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.BACKEND_SERVICE_NAME }}" \
+#             --limit=20 --format="value(timestamp,severity,textPayload)" || echo "Could not get logs"
