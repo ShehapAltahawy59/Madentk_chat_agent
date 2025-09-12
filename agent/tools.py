@@ -88,20 +88,137 @@ db = firestore.client()
 
 # --- Arabic Normalization ---
 def normalize_arabic(text: str) -> str:
+    """
+    Enhanced Arabic text normalization for better fuzzy matching.
+    Handles various Arabic character variations and diacritics.
+    """
     if not text:
         return text
+    
+    # Basic cleaning
     text = text.strip().lower()
+    
+    # Remove diacritics (tashkeel) first
+    diacritics = 'ًٌٍَُِّْٰ'
+    for diacritic in diacritics:
+        text = text.replace(diacritic, '')
+    
+    # Comprehensive character normalization
     replacements = {
-        'ي': 'ى',
-        'أ': 'ا',
-        'إ': 'ا',
-        'آ': 'ا',
+        # Alef variations
+        'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا',
+        # Yeh variations
+        'ي': 'ى', 'ئ': 'ى', 'ء': 'ى',
+        # Teh marbuta
         'ة': 'ه',
+        # Hamza variations
+        'ؤ': 'و', '۽': 'و',
+        # Other common variations
+        'ك': 'ك', 'ڪ': 'ك',  # Kaf variations
+        'گ': 'ك',  # Persian Kaf
+        'ڤ': 'ف',  # Veh
+        'چ': 'ج',  # Cheh
+        'پ': 'ب',  # Peh
+        'ژ': 'ز',  # Zheh
+        'ڨ': 'ق',  # Qaf with three dots
+        'ڧ': 'ق',  # Qaf with dot above
+        'ڢ': 'ف',  # Feh with dot below
+        'ڡ': 'ف',  # Feh with dot moved below
+        'ڦ': 'ف',  # Feh with three dots below
+        'ڥ': 'ف',  # Feh with three dots pointing down
+        'ڨ': 'ق',  # Qaf with three dots above
+        'ڧ': 'ق',  # Qaf with dot above
+        'ڢ': 'ف',  # Feh with dot below
+        'ڡ': 'ف',  # Feh with dot moved below
+        'ڦ': 'ف',  # Feh with three dots below
+        'ڥ': 'ف',  # Feh with three dots pointing down
+        # Remove common punctuation and spaces
+        '،': '', '؛': '', '؟': '', '!': '', 'ـ': '', 'ـ': '',
+        # Normalize spaces
+        '\u200f': ' ', '\u200e': ' ', '\u200d': '',  # RTL/LTR marks
+        '\u00a0': ' ',  # Non-breaking space
+        '\u2000': ' ', '\u2001': ' ', '\u2002': ' ', '\u2003': ' ',
+        '\u2004': ' ', '\u2005': ' ', '\u2006': ' ', '\u2007': ' ',
+        '\u2008': ' ', '\u2009': ' ', '\u200a': ' ', '\u200b': '',
     }
+    
+    # Apply replacements
     for old, new in replacements.items():
         text = text.replace(old, new)
+    
+    # Unicode normalization
     text = unicodedata.normalize('NFKC', text)
+    
+    # Remove extra spaces and clean up
+    text = ' '.join(text.split())
+    
     return text
+
+def advanced_arabic_fuzzy_match(query: str, choices: list, threshold: int = 70) -> list:
+    """
+    Advanced fuzzy matching for Arabic text with multiple strategies.
+    """
+    if not query or not choices:
+        return []
+    
+    # Normalize the query
+    normalized_query = normalize_arabic(query)
+    
+    results = []
+    
+    for choice in choices:
+        if isinstance(choice, dict):
+            # Handle dictionary choices (like item data)
+            name_ar = normalize_arabic(choice.get("name_ar", ""))
+            name_en = normalize_arabic(choice.get("name_en", ""))
+            choice_text = f"{name_ar} {name_en}".strip()
+        else:
+            # Handle string choices
+            choice_text = normalize_arabic(str(choice))
+        
+        if not choice_text:
+            continue
+            
+        # Multiple matching strategies
+        scores = []
+        
+        # 1. Direct fuzzy match
+        direct_score = process.extractOne(normalized_query, [choice_text])[1]
+        scores.append(direct_score)
+        
+        # 2. Partial match (for compound words)
+        words_query = normalized_query.split()
+        words_choice = choice_text.split()
+        
+        if len(words_query) > 1:
+            # Check if all query words are in choice
+            word_matches = 0
+            for word in words_query:
+                if any(process.extractOne(word, [w])[1] >= 80 for w in words_choice):
+                    word_matches += 1
+            partial_score = (word_matches / len(words_query)) * 100
+            scores.append(partial_score)
+        
+        # 3. Substring match (for partial matches)
+        if normalized_query in choice_text or choice_text in normalized_query:
+            scores.append(90)
+        
+        # 4. Character-based similarity (for typos)
+        char_similarity = process.extractOne(normalized_query, [choice_text])[1]
+        scores.append(char_similarity)
+        
+        # Take the best score
+        best_score = max(scores)
+        
+        if best_score >= threshold:
+            result = choice.copy() if isinstance(choice, dict) else choice
+            if isinstance(result, dict):
+                result['match_score'] = best_score
+            results.append((result, best_score))
+    
+    # Sort by score and return
+    results.sort(key=lambda x: x[1], reverse=True)
+    return [result[0] for result in results]
 
 # --- Firestore Tools ---
 REQUIRED_FIELDS = {
@@ -271,16 +388,9 @@ def search_restaurant_by_name(name: str) -> List[dict]:
         restaurants = []
         for doc in db.collection("categories").where("where", "==", ctx_where).stream():
             restaurants.append(doc.to_dict())
-        normalized_name = normalize_arabic(name)
-        matches = []
-        for rest in restaurants:
-            name_en = normalize_arabic(rest.get("name_en", "").strip().lower())
-            name_ar = normalize_arabic(rest.get("name_ar", "").strip().lower())
-            score_en = process.extractOne(normalized_name, [name_en])[1] if name_en else 0
-            score_ar = process.extractOne(normalized_name, [name_ar])[1] if name_ar else 0
-            if score_en >= 80 or score_ar >= 80:
-                matches.append(rest)
-        print(f"Direct search for '{name}' (normalized: '{normalized_name}') in {ctx_where} found: {[r.get('name_ar', '') for r in matches]}")
+        # Use advanced Arabic fuzzy matching
+        matches = advanced_arabic_fuzzy_match(name, restaurants, threshold=75)
+        print(f"Direct search for '{name}' in {ctx_where} found: {[r.get('name_ar', '') for r in matches]}")
         return matches
     except Exception as e:
         print(f"⚠ Error searching restaurants by name: {e}")
@@ -322,34 +432,13 @@ def get_item_by_name(item_name: str, restaurant_id: Optional[str] = None) -> Lis
             print(f"⚠ No items found for restaurant: {restaurant_id}")
             return []
         
-        # Normalize search query
-        normalized_name = normalize_arabic(item_name)
-        matches = []
-        
-        for item in items:
-            # Get item names in both languages
-            name_en = normalize_arabic(item.get("name_en", "").strip().lower())
-            name_ar = normalize_arabic(item.get("name_ar", "").strip().lower())
-            
-            # Calculate similarity scores
-            score_en = process.extractOne(normalized_name, [name_en])[1] if name_en else 0
-            score_ar = process.extractOne(normalized_name, [name_ar])[1] if name_ar else 0
-            
-            # Use the higher score
-            best_score = max(score_en, score_ar)
-            
-            if best_score >= 70:  # Lower threshold for items since names can be longer
-                item_with_score = item.copy()
-                item_with_score['match_score'] = best_score
-                matches.append(item_with_score)
-        
-        # Sort by match score (highest first)
-        matches.sort(key=lambda x: x.get('match_score', 0), reverse=True)
+        # Use advanced Arabic fuzzy matching
+        matches = advanced_arabic_fuzzy_match(item_name, items, threshold=65)
         
         # Limit results to top 10 matches
         matches = matches[:10]
         
-        print(f"Fuzzy search for item '{item_name}' (normalized: '{normalized_name}') found {len(matches)} matches")
+        print(f"Fuzzy search for item '{item_name}' found {len(matches)} matches")
         if matches:
             print(f"Top matches: {[item.get('name_ar', item.get('name_en', '')) for item in matches[:3]]}")
         
