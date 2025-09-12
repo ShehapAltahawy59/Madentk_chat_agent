@@ -6,14 +6,16 @@ on:
       - main
 
 jobs:
-  deploy:
+  deploy-backend:
     runs-on: ubuntu-latest
 
     env:
       SERVER_IP: 173.212.251.191
       PROJECT_DIR: Madentk_chat_agent
-      SERVICE_NAME: madentk-chat-agent.service
-      APP_PORT: 8001
+      BACKEND_SERVICE_NAME: madentk-chat-agent.service
+      UI_SERVICE_NAME: madentk-chat-agent-ui.service
+      BACKEND_PORT: 8001
+      UI_PORT: 8502
 
     steps:
       - name: Checkout code
@@ -22,17 +24,18 @@ jobs:
       - name: Install SSH client
         run: sudo apt-get update && sudo apt-get install -y sshpass
 
-      - name: Deploy to server and run setup
+      - name: Deploy both services to server
         env:
           SERVER_USER: ${{ secrets.SERVER_USER }}
           SERVER_PASS: ${{ secrets.SERVER_PASS }}
           REPO_URL: "https://github.com/ShehapAltahawy59/Madentk_chat_agent"
         run: |
-          echo "Copying service template to server..."
+          echo "Copying service templates to server..."
           sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no ./.deploy/madentk-chat-agent.service "$SERVER_USER@$SERVER_IP:/tmp/madentk-chat-agent.service"
+          sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no ./.deploy/madentk-chat-agent-ui.service "$SERVER_USER@$SERVER_IP:/tmp/madentk-chat-agent-ui.service"
 
           echo "Connecting to server..."
-          sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_IP" "PROJECT_DIR='$PROJECT_DIR' SERVICE_NAME='${SERVICE_NAME:-madentk-chat-agent.service}' REPO_URL='$REPO_URL' GOOGLE_APPLICATION_CREDENTIALS='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}' Gemini_API_KEY='${{ secrets.Gemini_API_KEY }}' HUGGINGFACE_HUB_TOKEN='${{ secrets.HUGGINGFACE_HUB_TOKEN }}' bash -s" << 'EOF'
+          sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_IP" "PROJECT_DIR='$PROJECT_DIR' BACKEND_SERVICE_NAME='${BACKEND_SERVICE_NAME:-madentk-chat-agent.service}' UI_SERVICE_NAME='${UI_SERVICE_NAME:-madentk-chat-agent-ui.service}' REPO_URL='$REPO_URL' GOOGLE_APPLICATION_CREDENTIALS='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}' Gemini_API_KEY='${{ secrets.Gemini_API_KEY }}' HUGGINGFACE_HUB_TOKEN='${{ secrets.HUGGINGFACE_HUB_TOKEN }}' CHAT_API_BASE_URL='http://173.212.251.191:8001' bash -s" << 'EOF'
             set -e
             echo "Updating repo..."
             if [ ! -d "$PROJECT_DIR" ]; then
@@ -87,11 +90,11 @@ jobs:
               chmod +x start.sh
             fi
 
-            echo "Ensuring systemd service exists..."
-            SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
+            echo "Setting up backend service..."
+            BACKEND_SERVICE_FILE="/etc/systemd/system/$BACKEND_SERVICE_NAME"
             APP_DIR="$(pwd)"
 
-            # Ensure env file exists with all necessary secrets
+            # Ensure backend env file exists with all necessary secrets
             echo "Writing /etc/madentk-chat-agent.env"
             {
               echo "GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}"
@@ -101,41 +104,79 @@ jobs:
             } | sudo tee /etc/madentk-chat-agent.env > /dev/null
             sudo chmod 600 /etc/madentk-chat-agent.env
 
-            # Create log directory and set permissions
-            echo "Creating log directory"
-            sudo mkdir -p /var/log/madentk-chat-agent
-            sudo chown $USER:$USER /var/log/madentk-chat-agent
-            sudo chmod 755 /var/log/madentk-chat-agent
+            # Create log directories and set permissions
+            echo "Creating log directories"
+            sudo mkdir -p /var/log/madentk-chat-agent /var/log/madentk-chat-agent-ui
+            sudo chown $USER:$USER /var/log/madentk-chat-agent /var/log/madentk-chat-agent-ui
+            sudo chmod 755 /var/log/madentk-chat-agent /var/log/madentk-chat-agent-ui
 
-            if ! sudo test -f "$SERVICE_FILE"; then
-              echo "Creating $SERVICE_NAME at $SERVICE_FILE"
+            # Setup backend service
+            if ! sudo test -f "$BACKEND_SERVICE_FILE"; then
+              echo "Creating $BACKEND_SERVICE_NAME at $BACKEND_SERVICE_FILE"
               sudo sed -e "s|__APP_DIR__|$APP_DIR|g" \
                          -e "s|__RUN_USER__|$USER|g" \
-                         /tmp/madentk-chat-agent.service | sudo tee "$SERVICE_FILE" > /dev/null
-              sudo chmod 644 "$SERVICE_FILE"
+                         /tmp/madentk-chat-agent.service | sudo tee "$BACKEND_SERVICE_FILE" > /dev/null
+              sudo chmod 644 "$BACKEND_SERVICE_FILE"
               sudo systemctl daemon-reload
-              sudo systemctl enable "$SERVICE_NAME"
+              sudo systemctl enable "$BACKEND_SERVICE_NAME"
             else
-              echo "Service already exists; updating with latest template..."
+              echo "Backend service already exists; updating with latest template..."
               sudo sed -e "s|__APP_DIR__|$APP_DIR|g" \
                          -e "s|__RUN_USER__|$USER|g" \
-                         /tmp/madentk-chat-agent.service | sudo tee "$SERVICE_FILE" > /dev/null
-              sudo chmod 644 "$SERVICE_FILE"
+                         /tmp/madentk-chat-agent.service | sudo tee "$BACKEND_SERVICE_FILE" > /dev/null
+              sudo chmod 644 "$BACKEND_SERVICE_FILE"
               sudo systemctl daemon-reload
             fi
 
-            echo "Restarting service..."
+            echo "Setting up UI service..."
+            UI_SERVICE_FILE="/etc/systemd/system/$UI_SERVICE_NAME"
+
+            # Ensure UI env file exists
+            echo "Writing /etc/madentk-chat-agent-ui.env"
+            {
+              echo "CHAT_API_BASE_URL=${CHAT_API_BASE_URL:-http://173.212.251.191:8001}"
+            } | sudo tee /etc/madentk-chat-agent-ui.env > /dev/null
+            sudo chmod 600 /etc/madentk-chat-agent-ui.env
+
+            # Setup UI service
+            if ! sudo test -f "$UI_SERVICE_FILE"; then
+              echo "Creating $UI_SERVICE_NAME at $UI_SERVICE_FILE"
+              sudo sed -e "s|__APP_DIR__|$APP_DIR|g" \
+                         -e "s|__RUN_USER__|$USER|g" \
+                         /tmp/madentk-chat-agent-ui.service | sudo tee "$UI_SERVICE_FILE" > /dev/null
+              sudo chmod 644 "$UI_SERVICE_FILE"
+              sudo systemctl daemon-reload
+              sudo systemctl enable "$UI_SERVICE_NAME"
+            else
+              echo "UI service already exists; updating with latest template..."
+              sudo sed -e "s|__APP_DIR__|$APP_DIR|g" \
+                         -e "s|__RUN_USER__|$USER|g" \
+                         /tmp/madentk-chat-agent-ui.service | sudo tee "$UI_SERVICE_FILE" > /dev/null
+              sudo chmod 644 "$UI_SERVICE_FILE"
+              sudo systemctl daemon-reload
+            fi
+
+            echo "Restarting services..."
             sudo systemctl daemon-reload || true
-            # Free port if any stray processes remain
+            # Free ports if any stray processes remain
             sudo fuser -k 8001/tcp || true
-            sudo systemctl restart "$SERVICE_NAME"
+            sudo fuser -k 8502/tcp || true
+            
+            # Start backend first, then UI
+            sudo systemctl restart "$BACKEND_SERVICE_NAME"
+            sleep 5  # Wait for backend to start
+            sudo systemctl restart "$UI_SERVICE_NAME"
 
             echo "Deployment complete!"
           EOF
 
-      - name: Publish service URL
-        id: publish-url
+      - name: Publish service URLs
+        id: publish-urls
         run: |
-          URL="http://${SERVER_IP}:${APP_PORT}"
-          echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "Service URL: ${URL}" >> $GITHUB_STEP_SUMMARY
+          BACKEND_URL="http://${SERVER_IP}:${BACKEND_PORT}"
+          UI_URL="http://${SERVER_IP}:${UI_PORT}"
+          echo "backend_url=${BACKEND_URL}" >> $GITHUB_OUTPUT
+          echo "ui_url=${UI_URL}" >> $GITHUB_OUTPUT
+          echo "## 🚀 Deployment Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend API:** ${BACKEND_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Streamlit UI:** ${UI_URL}" >> $GITHUB_STEP_SUMMARY
