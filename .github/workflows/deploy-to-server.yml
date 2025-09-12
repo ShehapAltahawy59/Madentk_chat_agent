@@ -45,8 +45,9 @@ jobs:
               git clone "$REPO_URL" .
             else
               echo "Updating existing repository..."
-              # Clean up any lock files
+              # Clean up any lock files and problematic references
               rm -f .git/refs/remotes/origin/main.lock
+              rm -f .git/refs/remotes/origin/main
               # Fetch and reset
               git fetch --all --prune
               git reset --hard origin/main
