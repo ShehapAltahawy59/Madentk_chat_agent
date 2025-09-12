@@ -7,9 +7,9 @@ chromadb
 sentence-transformers
 fuzzywuzzy
 numpy
-autogen-agentchat
-autogen-core
-autogen-ext
+autogen-core==0.6.1
+autogen-ext==0.6.1
+autogen-agentchat==0.6.1
 pydantic
 requests
 streamlit
@@ -17,3 +17,4 @@ torch
 python-dotenv
 huggingface-hub 
 langchain_community
+openai>=1.0.0
