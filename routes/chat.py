@@ -37,9 +37,10 @@ async def chat(request: ChatRequest):
             if assistant_msg and isinstance(assistant_msg, str):
                 messages.append(TextMessage(content=assistant_msg, source="assistant"))
 
-    # Provide user_id as a context message if supplied
+    # Always provide user_id as a context message if supplied
     if request.user_id:
         messages.append(TextMessage(content=f"USER_ID={request.user_id}", source="user"))
+        print(f"🔍 Added USER_ID context: {request.user_id}")
 
     messages.append(TextMessage(content=message_with_context, source="user"))
 

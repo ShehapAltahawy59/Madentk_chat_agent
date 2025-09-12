@@ -1,13 +1,15 @@
 name: Deploy Streamlit UI to Server
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["Deploy Chat Agent to Server"]
+    types: [completed]
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     env:
       SERVER_IP: 173.212.251.191
