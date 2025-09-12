@@ -28,7 +28,7 @@ with st.sidebar:
     
     
    
-    user_id = st.text_input("User ID (optional)", value="dIbhODNvagNACfhKWZy3")
+    user_id = st.text_input("User ID (optional)", value="pPpnUSXN9SVDZJaEDYhzzTuFRp92")
     
     # Location selection
     st.markdown("**Location**")
