@@ -41,26 +41,43 @@ with st.sidebar:
     )
     st.markdown("---")
     if st.button("Clear chat", use_container_width=True):
-        st.session_state.pop("chat_history", None)
+        # Clear history for current session only
+        st.session_state.chat_histories[current_session] = []
         st.rerun()
 
-# Initialize chat history: List[List[Optional[str]]] of [user, assistant]
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history: List[List[Optional[str]]] = []
+# Initialize session-based chat history
+if "session_id" not in st.session_state:
+    st.session_state.session_id = st.session_state.get("session_id", f"session_{hash(str(st.session_state))}")
+    
+if "chat_histories" not in st.session_state:
+    st.session_state.chat_histories = {}
+
+# Get or create chat history for current session
+current_session = st.session_state.session_id
+if current_session not in st.session_state.chat_histories:
+    st.session_state.chat_histories[current_session] = []
+
+chat_history = st.session_state.chat_histories[current_session]
 
 # Track location changes
 if "current_location" not in st.session_state:
     st.session_state.current_location = where_value
 elif st.session_state.current_location != where_value:
     st.session_state.current_location = where_value
-    st.session_state.chat_history = []  # Clear history when location changes
+    # Clear history for current session when location changes
+    st.session_state.chat_histories[current_session] = []
     st.rerun()
 
 st.title("SmartFoodAgent Chat")
+
+# Show welcome message if no chat history
+if not chat_history:
+    st.success("🎉 Welcome! You can now order food, search for dishes, and get personalized recommendations. Start by typing your request below!")
+
 st.info(f"📍 Current location: **{where_value}** - Only restaurants and items from this location will be shown")
 
 # Render existing conversation
-for user_msg, assistant_msg in st.session_state.chat_history:
+for user_msg, assistant_msg in chat_history:
     if user_msg:
         with st.chat_message("user"):
             st.markdown(user_msg)
@@ -79,7 +96,7 @@ if prompt:
     # Prepare request payload matching FastAPI schema using existing history only
     payload = {
         "user_query": prompt,
-        "history": st.session_state.chat_history,
+        "history": chat_history,
         "where": where_value,  # Always send where value
     }
     if user_id:
@@ -89,6 +106,8 @@ if prompt:
     st.sidebar.markdown("**Debug Info**")
     st.sidebar.text(f"Location: {where_value}")
     st.sidebar.text(f"User ID: {user_id or 'None'}")
+    st.sidebar.text(f"Session: {current_session[:8]}...")
+    st.sidebar.text(f"History length: {len(chat_history)}")
 
     # Call the /chat endpoint
     try:
@@ -104,4 +123,4 @@ if prompt:
         st.markdown(assistant_text)
 
     # Append the full pair to history after receiving the response
-    st.session_state.chat_history.append([prompt, assistant_text]) 
+    chat_history.append([prompt, assistant_text]) 

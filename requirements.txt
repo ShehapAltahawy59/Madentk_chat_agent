@@ -16,3 +16,4 @@ streamlit
 torch
 python-dotenv
 huggingface-hub 
+langchain_community
