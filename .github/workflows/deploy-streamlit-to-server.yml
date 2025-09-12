@@ -44,8 +44,13 @@ jobs:
               echo "Cloning repository for the first time..."
               git clone "$REPO_URL" .
             else
+              echo "Updating existing repository..."
+              # Clean up any lock files
+              rm -f .git/refs/remotes/origin/main.lock
+              # Fetch and reset
               git fetch --all --prune
               git reset --hard origin/main
+              git clean -fd
             fi
 
             echo "Setting up virtual environment..."
