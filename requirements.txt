@@ -7,9 +7,9 @@ chromadb
 sentence-transformers
 fuzzywuzzy
 numpy
-autogen-core==0.6.1
-autogen-ext==0.6.1
-autogen-agentchat==0.6.1
+autogen-core
+autogen-ext
+autogen-agentchat
 tiktoken
 pydantic
 requests
