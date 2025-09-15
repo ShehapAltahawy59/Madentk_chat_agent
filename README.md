@@ -1,5 +1,16 @@
 # Madentk Chat Agent
 
+## Algolia Search
+
+Set these environment variables to enable Algolia full-text and fuzzy-typo tolerant search:
+
+- `ALGOLIA_APP_ID`
+- `ALGOLIA_API_KEY`
+- `ALGOLIA_CATEGORIES_INDEX` (default: `categories_index`)
+- `ALGOLIA_ITEMS_INDEX` (default: `items_index`)
+
+The backend will prefer Algolia for `search_restaurant_by_name` and `get_item_by_name`. Ensure your indices contain fields used for filtering: `where`, and for items either `item_cat` or `restaurant_id`.
+
 SmartFoodAgent is a location-aware food ordering/chat assistant built with FastAPI (backend) and Streamlit (UI). It integrates Firebase (Firestore) for operational data and Chroma DB for semantic search with multilingual embeddings and reranking.
 
 ## ✨ Features

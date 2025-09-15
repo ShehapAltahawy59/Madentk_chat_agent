@@ -19,6 +19,9 @@ from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 from sentence_transformers import CrossEncoder
 from fuzzywuzzy import process
+from algoliasearch.search.client import SearchClientSync as SearchClient
+import asyncio
+
 
 print("✅ ML dependencies imported successfully (models will load at startup)")
 
@@ -86,7 +89,57 @@ if _hf_token:
 
 db = firestore.client()
 
-# --- Arabic Normalization ---
+# --- Algolia Setup (v4) ---
+ALGOLIA_APP_ID = os.environ.get("ALGOLIA_APP_ID")
+ALGOLIA_API_KEY = os.environ.get("ALGOLIA_API_KEY")
+ALGOLIA_CATEGORIES_INDEX = os.environ.get("ALGOLIA_CATEGORIES_INDEX", "categories_index")
+ALGOLIA_ITEMS_INDEX = os.environ.get("ALGOLIA_ITEMS_INDEX", "items_index")
+
+algolia_client = None
+
+if ALGOLIA_APP_ID and ALGOLIA_API_KEY:
+    try:
+        algolia_client = SearchClient(ALGOLIA_APP_ID, ALGOLIA_API_KEY)
+        print("✅ Algolia client v4 initialized")
+    except Exception as e:
+        print(f"⚠ Failed to initialize Algolia: {e}")
+else:
+    print("⚠ Missing ALGOLIA_APP_ID or ALGOLIA_API_KEY; Algolia search disabled")
+
+def _algolia_search(index_name: str, query: str, params: dict) -> dict:
+    """Algolia v4 batch search. Returns per-index result dict with 'hits'."""
+    if not algolia_client:
+        return {"hits": []}
+    try:
+        search_params = {
+            "search_method_params": {
+                "requests": [
+                    {
+                        "indexName": index_name,
+                        "query": query,
+                        **(params or {}),
+                    }
+                ]
+            }
+        }
+        resp = algolia_client.search(**search_params)
+        # Convert to dict-like
+        if hasattr(resp, 'to_dict'):
+            data = resp.to_dict()
+        elif hasattr(resp, 'to_json'):
+            import json as _json
+            data = _json.loads(resp.to_json())
+        else:
+            data = resp
+        results = (data or {}).get("results") or (data or {}).get("responses")
+        if results and isinstance(results, list):
+            return results[0]
+        return {"hits": []}
+    except Exception as e:
+        print(f"⚠ Algolia search call failed: {e}")
+        return {"hits": []}
+
+#--- Arabic Normalization ---
 def normalize_arabic(text: str) -> str:
     """
     Enhanced Arabic text normalization for better fuzzy matching.
@@ -220,6 +273,34 @@ def advanced_arabic_fuzzy_match(query: str, choices: list, threshold: int = 70) 
     results.sort(key=lambda x: x[1], reverse=True)
     return [result[0] for result in results]
 
+# --- Time-based Meal Keywords Tool ---
+def suggest_meal_keywords(now: Optional[datetime] = None) -> List[str]:
+    """Return Arabic keywords for the current meal time in Egypt.
+    Morning (5-11): إفطار/فطار; Noon (11-16): غداء; Evening (16-22): عشاء; Late (22-2): سناكس.
+    """
+    current_time = now or datetime.now()
+    hour = current_time.hour
+    if 5 <= hour < 11:
+        return [
+            "فطار", "سندوتش", "جبنه", "بيض", "فول", "فلافل", "طعمية", "بطاطس",
+            "كروسانت", "توست", "لبنة", "زعتر", "شاي", "قهوة"
+        ]
+    if 11 <= hour < 16:
+        return [
+            "غداء", "وجبة", "رز", "فراخ", "لحمة", "شاورما", "كشري", "برجر",
+            "بيتزا", "مكرونة", "وجبة اقتصادية", "بطاطس"
+        ]
+    if 16 <= hour < 22:
+        return [
+            "عشاء", "سندوتش", "شاورما", "برجر", "كبدة", "سجق", "طاسة", "فتة",
+            "كريب", "بطاطس", "تشكن", "تيكا"
+        ]
+    # Late night
+    return [
+        "سناكس", "سناك", "سندوتش", "بطاطس", "نوجتس", "كريب", "وافل", "كريب حلو",
+        "كريب حادق", "برجر"
+    ]
+
 # --- Firestore Tools ---
 REQUIRED_FIELDS = {
     "addressid": "",
@@ -289,6 +370,12 @@ def insert_order(order_data: dict) -> dict:
         ctx_where = get_active_where()
         if ctx_where:
             order_data["where"] = ctx_where
+        # Visibility when LLM triggers order placement
+        print(
+            f"🧾 insert_order called | orderid={order_data.get('orderid')} "
+            f"user_id={order_data.get('user_id')} resturant={order_data.get('resturant')} "
+            f"total={order_data.get('totalprice')} items={len(order_data.get('itemsinorder', []))} where={order_data.get('where')}"
+        )
         db.collection("orders").add(order_data)
         return {"status": "success", "message": f"✅ Order {order_data['orderid']} placed successfully."}
     except Exception as e:
@@ -382,73 +469,55 @@ def get_items_in_restaurant(restaurant_id: str) -> List[dict]:
         return []
 
 def search_restaurant_by_name(name: str) -> List[dict]:
+    """
+    Search restaurants using Algolia `categories_index` with location filter.
+    """
+    ctx_where = get_active_where()
+    if not algolia_client:
+        print("⚠ Algolia client unavailable; returning empty result")
+        return []
     try:
-        ctx_where = get_active_where() or "quweisna"
-        print(f"🔍 Searching restaurants in location: {ctx_where}")
-        restaurants = []
-        for doc in db.collection("categories").where("where", "==", ctx_where).stream():
-            restaurants.append(doc.to_dict())
-        # Use advanced Arabic fuzzy matching
-        matches = advanced_arabic_fuzzy_match(name, restaurants, threshold=75)
-        print(f"Direct search for '{name}' in {ctx_where} found: {[r.get('name_ar', '') for r in matches]}")
-        return matches
+        params = {
+            "filters": f"where:'{ctx_where}'",
+            "hitsPerPage": 10,
+        }
+        res = _algolia_search(ALGOLIA_CATEGORIES_INDEX, name , params)
+        hits = res.get("hits", []) if isinstance(res, dict) else []
+        print(f"Algolia restaurant search for '{name}' in {ctx_where}: {len(hits)} hits")
+        return hits
     except Exception as e:
-        print(f"⚠ Error searching restaurants by name: {e}")
+        print(f"⚠ Algolia restaurant search error: {e}")
         return []
 
 def get_item_by_name(item_name: str, restaurant_id: Optional[str] = None) -> List[dict]:
     """
-    Search for items by name using fuzzy matching.
-    Args:
-        item_name (str): The name of the item to search for
-        restaurant_id (Optional[str]): Optional restaurant ID to filter items
-    Returns:
-        List[dict]: List of matching items with their details
+    Search items using Algolia `items_index` with optional restaurant and location filters.
     """
+    ctx_where = get_active_where() or "quweisna"
+    if not algolia_client:
+        print("⚠ Algolia client unavailable; returning empty result")
+        return []
     try:
-        # Get all items
-        ctx_where = get_active_where() or "quweisna"
-        print(f"🔍 Searching items in location: {ctx_where}")
+        if restaurant_id:
+            params = {
+                "filters": f"item_cat:'{restaurant_id}'",
+                    "hitsPerPage": 30,
+                }
+        else:
+                params = {
+                    "hitsPerPage": 30,
+                }
         
-        # First get restaurants in the current location
-        restaurant_ids = []
-        for doc in db.collection("categories").where("where", "==", ctx_where).stream():
-            restaurant_ids.append(doc.id)
-        
-        if not restaurant_ids:
-            print(f"⚠ No restaurants found in location: {ctx_where}")
-            return []
-        
-        # Get items from restaurants in the current location
-        items = []
-        for restaurant_id in restaurant_ids:
-            query = db.collection("items").where("item_cat", "==", restaurant_id)
-            
-            for doc in query.stream():
-                item_data = doc.to_dict()
-                items.append(item_data)
-        
-        if not items:
-            print(f"⚠ No items found for restaurant: {restaurant_id}")
-            return []
-        
-        # Use advanced Arabic fuzzy matching
-        matches = advanced_arabic_fuzzy_match(item_name, items, threshold=65)
-        
-        # Limit results to top 10 matches
-        matches = matches[:10]
-        
-        print(f"Fuzzy search for item '{item_name}' found {len(matches)} matches")
-        if matches:
-            print(f"Top matches: {[item.get('name_ar', item.get('name_en', '')) for item in matches[:3]]}")
-        
-        return matches
-        
+        res = _algolia_search(ALGOLIA_ITEMS_INDEX, item_name , params)
+        hits = res.get("hits", []) if isinstance(res, dict) else []
+        print(f"Algolia item search for '{item_name}' : {len(hits)} hits")
+        print(hits[0])
+        return hits
     except Exception as e:
-        print(f"⚠ Error searching items by name: {e}")
+        print(f"⚠ Algolia item search error: {e}")
         return []
 
-# --- Vectorstore Setup with Startup Loading ---
+#--- Vectorstore Setup with Startup Loading ---
 device = 'cpu'
 embedding_model = None
 vectorstore = None
@@ -619,20 +688,31 @@ try:
     print(f"🔍 Path exists: {os.path.exists(chroma_path)}")
     print(f"🔍 Is directory: {os.path.isdir(chroma_path) if os.path.exists(chroma_path) else False}")
     
+    # Check if directory exists and contains valid Chroma files
+    chroma_valid = False
     if os.path.exists(chroma_path) and os.path.isdir(chroma_path):
-        try:
-            print("🔄 Loading vectorstore...")
-            vectorstore = Chroma(
-                collection_name=collection_name,
-                embedding_function=embedding_model,
-                persist_directory=chroma_path
-            )
-            print("✅ Vectorstore loaded from existing directory")
-        except Exception as e:
-            print(f"⚠ Error loading vectorstore: {e}")
-            vectorstore = None
-    else:
-        print(f"⚠ Chroma DB directory not found at {chroma_path}")
+        # Check for Chroma database files
+        chroma_files = [f for f in os.listdir(chroma_path) if f.endswith('.sqlite3') or f.endswith('.parquet')]
+        if chroma_files:
+            try:
+                print("🔄 Loading vectorstore...")
+                vectorstore = Chroma(
+                    collection_name=collection_name,
+                    embedding_function=embedding_model,
+                    persist_directory=chroma_path
+                )
+                # Test if vectorstore actually has data
+                test_docs = vectorstore.similarity_search("test", k=1)
+                print("✅ Vectorstore loaded from existing directory")
+                chroma_valid = True
+            except Exception as e:
+                print(f"⚠ Error loading vectorstore: {e}")
+                vectorstore = None
+        else:
+            print(f"⚠ Chroma DB directory exists but contains no valid database files")
+    
+    if not chroma_valid:
+        print(f"⚠ Chroma DB directory not found or invalid at {chroma_path}")
         # Create the vector database
         if create_vector_database():
             try:
@@ -675,10 +755,10 @@ except Exception as e:
     embedding_model = None
     vectorstore = None
 
-# Semantic Search Tool
+#Semantic Search Tool
 def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] = None, k: int = 20) -> List[dict]:
     vs = get_vectorstore()
-    if not vs:
+    if vs is None:
         print("⚠ Vectorstore not available for semantic search")
         return []
     
@@ -733,6 +813,77 @@ def search_semantic(query: str, scope: Optional[Literal["item", "restaurant"]] =
         return []
 
 # --- Load restaurant_data and name mapping (preserved) ---
+
+# Composed recommendation tool
+def recommend_time_based_suggestions(budget_egp: Optional[float] = None, k: int = 20) -> List[dict]:
+    """Use time-based keywords with semantic search and Algolia item search.
+    Optional budget filters by price metadata.
+    """
+    try:
+        keywords = suggest_meal_keywords()
+        print(f"🔍 Using meal keywords: {keywords}")
+        results: List[dict] = []
+        seen = set()
+        for kw in keywords:
+            # 1) Semantic search
+            sem_hits = search_semantic(kw, scope=None, k=max(2, k // 2)) 
+            # 2) Algolia item search
+            alg_hits = get_item_by_name(kw) 
+
+            # Normalize Algolia hits to same shape
+            normalized_alg_hits: List[dict] = []
+            for ah in alg_hits:
+                meta = {
+                    "type": "item",
+                    "item_id": ah.get("item_id") or ah.get("id") or "",
+                    "restaurant_id": ah.get("item_cat", ""),
+                    "name_en": ah.get("name_en", ""),
+                    "name_ar": ah.get("name_ar", ""),
+                    "description_en": ah.get("description_en", ""),
+                    "description_ar": ah.get("description_ar", ""),
+                    "price": ah.get("price", ""),
+                    "where": ah.get("where", get_active_where() or "")
+                }
+                content_parts = []
+                if meta["name_en"]:
+                    content_parts.append(f"Item: {meta['name_en']}")
+                if meta["name_ar"]:
+                    content_parts.append(f"الوجبة: {meta['name_ar']}")
+                if meta["description_en"]:
+                    content_parts.append(f"Description: {meta['description_en']}")
+                if meta["description_ar"]:
+                    content_parts.append(f"الوصف: {meta['description_ar']}")
+                if meta["price"]:
+                    content_parts.append(f"Price: {meta['price']}")
+                normalized_alg_hits.append({
+                    "content": " | ".join(content_parts) if content_parts else meta["name_ar"] or meta["name_en"],
+                    "metadata": meta
+                })
+
+            merged_hits = sem_hits + normalized_alg_hits
+            for h in merged_hits:
+                meta = h.get("metadata", {})
+                key = (meta.get("type"), meta.get("item_id") or meta.get("restaurant_id"), h.get("content"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                if budget_egp is not None:
+                    try:
+                        price_val = float(meta.get("price", 0) or 0)
+                    except Exception:
+                        price_val = 0
+                    if price_val and price_val > budget_egp:
+                        continue
+                results.append(h)
+                if len(results) >= k:
+                    break
+            if len(results) >= k:
+                break
+        print(f"✅ recommend_time_based_suggestions collected {len(results)} results")
+        return results
+    except Exception as e:
+        print(f"⚠ recommend_time_based_suggestions error: {e}")
+        return []
 restaurant_data = {}
 try:
     for doc in db.collection("categories").where('where', '==', 'quweisna').stream():

@@ -10,13 +10,14 @@ smart_agent = AssistantAgent(
     tools=[
         tools_module.insert_order,
         tools_module.get_user_by_id,
-        tools_module.search_semantic,
         tools_module.get_restaurant_by_id,
         tools_module.get_item_by_id,
         tools_module.get_item_by_name,
         tools_module.get_items_in_restaurant,
         tools_module.search_restaurant_by_name,
         tools_module.get_active_user_id,
+        tools_module.recommend_time_based_suggestions,
+        tools_module.search_semantic,
     ],
     reflect_on_tool_use=True,
     max_tool_iterations=5

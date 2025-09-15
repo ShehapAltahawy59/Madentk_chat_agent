@@ -5,9 +5,10 @@ import logging
 import sys
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
-
+for name in ["httpx","autogen_core","autogen","autogen_agentchat","openai","google.generativeai"]:
+  logging.getLogger(name).disabled = True
 try:
     from routes.chat import router as chat_router
     logger.info("Successfully imported chat router")

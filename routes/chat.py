@@ -6,6 +6,10 @@ from autogen_core import CancellationToken
 from agent.agent import smart_agent
 from agent import tools as tools_module
 
+# Simple in-memory session context store
+# Maps user_id -> {"where": str}
+SESSION_CTX = {}
+
 class ChatRequest(BaseModel):
     user_query: str
     history: List[List[Optional[str]]] = []
@@ -20,13 +24,26 @@ async def chat(request: ChatRequest):
     history = request.history
     message_with_context = user_query
 
+    # Resolve session context: prefer provided values, else reuse stored, else defaults
+    resolved_user_id = request.user_id
+    resolved_where = request.where
+    if resolved_user_id:
+        # Initialize session bucket if missing
+        if resolved_user_id not in SESSION_CTX:
+            SESSION_CTX[resolved_user_id] = {}
+        # If where provided, store/update; else reuse previous if any
+        if resolved_where:
+            SESSION_CTX[resolved_user_id]["where"] = resolved_where
+        else:
+            resolved_where = SESSION_CTX[resolved_user_id].get("where", None)
+
+    # Set defaults if still missing
+    if not resolved_where:
+        resolved_where = "quweisna"
+
     # Store active user id and where (available to tools and agent via tool)
-    tools_module.set_active_user_id(request.user_id)
-    tools_module.set_active_where(request.where)
-    
-    # Debug: Print the active context
-    print(f"🔍 Setting active context - user_id: {request.user_id}, where: {request.where}")
-    print(f"🔍 Active context after setting - user_id: {tools_module.get_active_user_id()}, where: {tools_module.get_active_where()}")
+    tools_module.set_active_user_id(resolved_user_id)
+    tools_module.set_active_where(resolved_where)
 
     messages = []
     for pair in history[-5:]:
