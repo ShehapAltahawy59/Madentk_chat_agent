@@ -101,6 +101,10 @@ jobs:
               echo "Gemini_API_KEY=${Gemini_API_KEY:-}"
               echo "HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_HUB_TOKEN:-}"
               echo "CHROMA_DB_DIR=/data/chroma_db"
+              echo "ALGOLIA_APP_ID=${ALGOLIA_APP_ID:-}"
+              echo "ALGOLIA_API_KEY=${ALGOLIA_API_KEY:-}"
+              echo "ALGOLIA_CATEGORIES_INDEX=${ALGOLIA_CATEGORIES_INDEX:-}"
+              echo "ALGOLIA_ITEMS_INDEX=${ALGOLIA_ITEMS_INDEX:-}"
             } | sudo tee /etc/madentk-chat-agent.env > /dev/null
             sudo chmod 600 /etc/madentk-chat-agent.env
 
