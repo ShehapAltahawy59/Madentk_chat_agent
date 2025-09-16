@@ -35,7 +35,7 @@ jobs:
           sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no ./.deploy/madentk-chat-agent-ui.service "$SERVER_USER@$SERVER_IP:/tmp/madentk-chat-agent-ui.service"
 
           echo "Connecting to server..."
-          sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_IP" "PROJECT_DIR='$PROJECT_DIR' BACKEND_SERVICE_NAME='${BACKEND_SERVICE_NAME:-madentk-chat-agent.service}' UI_SERVICE_NAME='${UI_SERVICE_NAME:-madentk-chat-agent-ui.service}' REPO_URL='$REPO_URL' GOOGLE_APPLICATION_CREDENTIALS='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}' Gemini_API_KEY='${{ secrets.Gemini_API_KEY }}' HUGGINGFACE_HUB_TOKEN='${{ secrets.HUGGINGFACE_HUB_TOKEN }}' CHAT_API_BASE_URL='http://173.212.251.191:8001' bash -s" << 'EOF'
+          sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_IP" "PROJECT_DIR='$PROJECT_DIR' BACKEND_SERVICE_NAME='${BACKEND_SERVICE_NAME:-madentk-chat-agent.service}' UI_SERVICE_NAME='${UI_SERVICE_NAME:-madentk-chat-agent-ui.service}' REPO_URL='$REPO_URL' GOOGLE_APPLICATION_CREDENTIALS='${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}' Gemini_API_KEY='${{ secrets.Gemini_API_KEY }}' ALGOLIA_APP_ID='${{ secrets.ALGOLIA_APP_ID }}' ALGOLIA_API_KEY='${{ secrets.ALGOLIA_API_KEY }}' ALGOLIA_CATEGORIES_INDEX='${{ secrets.ALGOLIA_CATEGORIES_INDEX }}' ALGOLIA_ITEMS_INDEX='${{ secrets.ALGOLIA_ITEMS_INDEX }}' HUGGINGFACE_HUB_TOKEN='${{ secrets.HUGGINGFACE_HUB_TOKEN }}' CHAT_API_BASE_URL='http://173.212.251.191:8001' bash -s" << 'EOF'
             set -e
             echo "Updating repo..."
             if [ ! -d "$PROJECT_DIR" ]; then
