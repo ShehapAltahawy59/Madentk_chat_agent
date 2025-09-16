@@ -3,11 +3,16 @@ import requests
 import streamlit as st
 from typing import List, Optional
 from dotenv import load_dotenv
+from uuid import uuid4
 
 # Load environment variables for local dev
 load_dotenv()
 
 st.set_page_config(page_title="SmartFoodAgent Chat", page_icon="🍽️", layout="centered")
+
+# Global in-process chat store to allow persistence across Streamlit sessions
+# keyed by a stable identifier (user_id if provided, else a URL sid).
+CHAT_STORE = globals().setdefault("CHAT_STORE", {})
 
 # Sidebar configuration
 with st.sidebar:
@@ -40,24 +45,27 @@ with st.sidebar:
         help="Choose your delivery location"
     )
     st.markdown("---")
-    if st.button("Clear chat", use_container_width=True):
-        # Clear history for current session only
-        st.session_state.chat_histories[current_session] = []
-        st.rerun()
+    # Clear button wired later after keys are initialized
+    clear_placeholder = st.empty()
 
-# Initialize session-based chat history
-if "session_id" not in st.session_state:
-    st.session_state.session_id = st.session_state.get("session_id", f"session_{hash(str(st.session_state))}")
-    
+# Initialize a stable session id via URL query param `sid` (use new st.query_params API)
+sid = st.query_params.get("sid")
+if not sid:
+    sid = str(uuid4())[:12]
+    st.query_params["sid"] = sid
+
+# Initialize containers
 if "chat_histories" not in st.session_state:
     st.session_state.chat_histories = {}
 
-# Get or create chat history for current session
-current_session = st.session_state.session_id
-if current_session not in st.session_state.chat_histories:
-    st.session_state.chat_histories[current_session] = []
+# Determine the history key: prefer user_id if provided later, else sid
+# We'll initialize with sid for now; after user_id is entered we will remap
+history_key = sid
+if history_key not in st.session_state.chat_histories:
+    # Seed from global CHAT_STORE if present
+    st.session_state.chat_histories[history_key] = CHAT_STORE.get(history_key, [])
 
-chat_history = st.session_state.chat_histories[current_session]
+chat_history = st.session_state.chat_histories[history_key]
 
 # Track location changes
 if "current_location" not in st.session_state:
@@ -65,7 +73,8 @@ if "current_location" not in st.session_state:
 elif st.session_state.current_location != where_value:
     st.session_state.current_location = where_value
     # Clear history for current session when location changes
-    st.session_state.chat_histories[current_session] = []
+    st.session_state.chat_histories[history_key] = []
+    CHAT_STORE[history_key] = []
     st.rerun()
 
 st.title("SmartFoodAgent Chat")
@@ -84,6 +93,23 @@ for user_msg, assistant_msg in chat_history:
     if assistant_msg:
         with st.chat_message("assistant"):
             st.markdown(assistant_msg)
+
+# Now that we know user_id, if it's filled move the history to be keyed by user_id
+if user_id:
+    user_key = user_id.strip()
+    if user_key and user_key != history_key:
+        # Migrate history to new key (user-based)
+        CHAT_STORE[user_key] = CHAT_STORE.get(user_key, st.session_state.chat_histories.get(history_key, []))
+        st.session_state.chat_histories[user_key] = CHAT_STORE[user_key]
+        history_key = user_key
+        chat_history = st.session_state.chat_histories[history_key]
+
+# Wire clear button now that history_key is known
+with clear_placeholder:
+    if st.button("Clear chat", use_container_width=True):
+        st.session_state.chat_histories[history_key] = []
+        CHAT_STORE[history_key] = []
+        st.rerun()
 
 # Chat input
 prompt = st.chat_input("اكتب طلبك هنا…")
@@ -106,7 +132,7 @@ if prompt:
     st.sidebar.markdown("**Debug Info**")
     st.sidebar.text(f"Location: {where_value}")
     st.sidebar.text(f"User ID: {user_id or 'None'}")
-    st.sidebar.text(f"Session: {current_session[:8]}...")
+    st.sidebar.text(f"Session: {history_key[:12]}...")
     st.sidebar.text(f"History length: {len(chat_history)}")
 
     # Call the /chat endpoint
@@ -122,5 +148,7 @@ if prompt:
     with st.chat_message("assistant"):
         st.markdown(assistant_text)
 
-    # Append the full pair to history after receiving the response
-    chat_history.append([prompt, assistant_text]) 
+    # Append the full pair to history after receiving the response and persist
+    chat_history.append([prompt, assistant_text])
+    st.session_state.chat_histories[history_key] = chat_history
+    CHAT_STORE[history_key] = chat_history
