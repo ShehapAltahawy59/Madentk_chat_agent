@@ -11,7 +11,7 @@ numpy
 tiktoken
 pydantic
 requests
-streamlit
+streamlit>=1.30.0
 torch
 python-dotenv
 huggingface-hub 
