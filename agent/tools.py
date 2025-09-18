@@ -306,7 +306,7 @@ REQUIRED_FIELDS = {
     "addressid": "",
     "cancelreason": "",
     "delivery": {"name": "", "phone": ""},
-    "deliveryCost": 0,
+    "deliveryCost": "",
     "itemsinorder": [],
     "lat": "",
     "long": "",
@@ -336,7 +336,7 @@ def insert_order(order_data: dict) -> dict:
                 "addressid": str, #addrees of user where order will be delivered
                 "cancelreason": "",  # constant
                 "delivery": {"name": "", "phone": ""},  # constant
-                "deliveryCost": 15, # constant
+                "deliveryCost":int, 
                 "itemsinorder": [ "itemid:item count:{itemsize}:{addons}:item price", ... ],
                 "lat": "", # constant
                 "long": "", # constant
@@ -517,6 +517,55 @@ def get_item_by_name(item_name: str, restaurant_id: Optional[str] = None) -> Lis
         print(f"⚠ Algolia item search error: {e}")
         return []
 
+def get_delivery_cost(area_name: str) -> Optional[float]:
+    """
+    Return delivery cost for a given area from Firestore.
+    - Reads collection "regions", document "elmnofia"
+    - Looks into array field delivery_zones[0]
+    - Finds object where zone_name == area_name
+    - Returns zone_cost as float if found, else None
+    """
+    try:
+        print(f"🔍 Fetching delivery cost for area: {area_name}")
+        doc_ref = db.collection("regions").document("elmnofia").get()
+        if not doc_ref.exists:
+            print("⚠ regions/elmnofia document not found")
+            return None
+        data = doc_ref.to_dict() or {}
+        city_data = data.get("cities")
+        city = city_data[0]
+        delivery_zones = city.get("delivery_zones") or []
+        if not isinstance(delivery_zones, list) or not delivery_zones:
+            print("⚠ delivery_zones is missing or not a list")
+            return None
+        first_zone_group = delivery_zones[0]
+        # The data shape could be either a list of zones or an object with a zones array
+        zones = None
+        if isinstance(first_zone_group, list):
+            zones = first_zone_group
+        elif isinstance(first_zone_group, dict):
+            # Common patterns: { zones: [...] } or direct zone objects inside array
+            zones = first_zone_group.get("zones") if isinstance(first_zone_group.get("zones"), list) else delivery_zones
+        else:
+            print("⚠ Unrecognized delivery_zones[0] structure")
+            return None
+        target_normalized = (area_name or "").strip().lower()
+        for z in zones:
+            if not isinstance(z, dict):
+                continue
+            name = str(z.get("zone_name", "")).strip().lower()
+            if name == target_normalized:
+                cost = z.get("zone_cost")
+                try:
+                    return float(cost)
+                except Exception:
+                    print(f"⚠ zone_cost not numeric: {cost}")
+                    return None
+        print(f"⚠ No matching zone_name found for '{area_name}'")
+        return None
+    except Exception as e:
+        print(f"⚠ Error fetching delivery cost: {e}")
+        return None
 #--- Vectorstore Setup with Startup Loading ---
 device = 'cpu'
 embedding_model = None

@@ -18,6 +18,7 @@ smart_agent = AssistantAgent(
         tools_module.get_active_user_id,
         tools_module.recommend_time_based_suggestions,
         tools_module.search_semantic,
+        tools_module.get_delivery_cost,
     ],
     reflect_on_tool_use=True,
     max_tool_iterations=5
