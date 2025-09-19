@@ -96,6 +96,13 @@ else:
 async def startup_event():
     logger.info("Application starting up...")
     logger.info(f"Python version: {sys.version}")
+    
+    # Initialize memory from Firestore
+    try:
+        from agent import tools as tools_module
+        await tools_module.initialize_memory()
+    except Exception as e:
+        logger.error(f"Failed to initialize memory: {e}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8080)

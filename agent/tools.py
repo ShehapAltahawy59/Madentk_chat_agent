@@ -9,6 +9,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 from huggingface_hub import login as hf_login
+from autogen_core.memory import ListMemory, MemoryContent, MemoryMimeType
 
 # Load environment variables
 load_dotenv()
@@ -28,6 +29,106 @@ print("✅ ML dependencies imported successfully (models will load at startup)")
 # Active user context
 active_user_id: Optional[str] = None
 active_where: Optional[str] = None
+
+# User-specific memory management
+user_memories = {}  # Dict to store ListMemory instances per user
+
+class UserSpecificMemory:
+    """User-specific memory that stores data in Firestore and loads it into user-specific ListMemory"""
+    
+    def __init__(self):
+        self.collection_name = "agent_memories"
+    
+    def get_user_memory(self, user_id: str) -> ListMemory:
+        """Get or create a ListMemory instance for a specific user"""
+        if user_id not in user_memories:
+            user_memories[user_id] = ListMemory()
+        return user_memories[user_id]
+    
+    async def load_user_memories(self, user_id: str):
+        """Load memories from Firestore for a specific user"""
+        try:
+            user_memory = self.get_user_memory(user_id)
+            await user_memory.clear()
+            
+            # Query only memories for this user
+            docs = db.collection(self.collection_name).where("metadata.user_id", "==", user_id).stream()
+            for doc in docs:
+                data = doc.to_dict()
+                if data:
+                    await user_memory.add(MemoryContent(
+                        content=data.get("content", ""),
+                        mime_type=MemoryMimeType.TEXT,
+                        metadata=data.get("metadata", {})
+                    ))
+            print(f"✅ Loaded memories for user {user_id}")
+        except Exception as e:
+            print(f"⚠ Error loading memories for user {user_id}: {e}")
+    
+    async def save_user_memories(self, user_id: str):
+        """Save memories for a specific user to Firestore"""
+        try:
+            user_memory = self.get_user_memory(user_id)
+            
+            # Clear existing memories for this user in Firestore
+            docs = db.collection(self.collection_name).where("metadata.user_id", "==", user_id).stream()
+            for doc in docs:
+                doc.reference.delete()
+            
+            # Get current memories and save them
+            query_result = await user_memory.query("")
+            print(f"Query result type: {type(query_result)}")
+            print(f"Query result: {query_result}")
+            
+            # Extract the actual memories from the query result
+            if hasattr(query_result, 'results'):
+                memories = query_result.results
+            else:
+                memories = query_result
+                
+            for memory in memories:
+                # Handle both MemoryContent objects and tuples
+                if hasattr(memory, 'content') and hasattr(memory, 'metadata'):
+                    # It's a MemoryContent object
+                    db.collection(self.collection_name).add({
+                        "content": memory.content,
+                        "metadata": memory.metadata or {},
+                        "created_at": datetime.now()
+                    })
+                elif isinstance(memory, tuple) and len(memory) >= 2:
+                    # It's a tuple, try to extract content and metadata
+                    content = str(memory[0]) if memory[0] else ""
+                    metadata = memory[1] if len(memory) > 1 and isinstance(memory[1], dict) else {}
+                    db.collection(self.collection_name).add({
+                        "content": content,
+                        "metadata": metadata,
+                        "created_at": datetime.now()
+                    })
+                else:
+                    # Fallback: convert to string
+                    db.collection(self.collection_name).add({
+                        "content": str(memory),
+                        "metadata": {},
+                        "created_at": datetime.now()
+                    })
+            print(f"✅ Saved {len(memories)} memories for user {user_id} to Firestore")
+        except Exception as e:
+            print(f"⚠ Error saving memories for user {user_id}: {e}")
+
+# Initialize user-specific memory manager
+user_memory_manager = UserSpecificMemory()
+
+# Global memory for backward compatibility (will be deprecated)
+user_memory = ListMemory()
+
+async def initialize_memory():
+    """Initialize memory system on startup"""
+    try:
+        # Initialize the user memory manager
+        # Individual user memories will be loaded on-demand
+        print("✅ Memory system initialized - user memories will be loaded on-demand")
+    except Exception as e:
+        print(f"⚠ Error initializing memory: {e}")
 
 def set_active_user_id(user_id: Optional[str]) -> None:
     global active_user_id
@@ -566,6 +667,169 @@ def get_delivery_cost(area_name: str) -> Optional[float]:
     except Exception as e:
         print(f"⚠ Error fetching delivery cost: {e}")
         return None
+
+async def add_user_preference(user_id: str, preference: str) -> dict:
+    """Add user preference to memory, keeping only 5 most recent preferences per user"""
+    try:
+        # Get user-specific memory
+        user_memory = user_memory_manager.get_user_memory(user_id)
+        
+        # Get current memory contents for this user
+        query_result = await user_memory.query("")
+        memories = query_result.results if hasattr(query_result, 'results') else query_result
+        
+        # Filter memories for this user and type
+        user_preferences = []
+        other_memories = []
+        
+        for memory in memories:
+            # Handle both MemoryContent objects and tuples
+            if hasattr(memory, 'metadata') and memory.metadata:
+                if memory.metadata.get("type") == "preference":
+                    user_preferences.append(memory)
+                else:
+                    other_memories.append(memory)
+            else:
+                other_memories.append(memory)
+        
+        # Keep only 4 most recent preferences (we'll add 1 more)
+        user_preferences = user_preferences[-4:] if len(user_preferences) > 4 else user_preferences
+        
+        # Clear user memory
+        await user_memory.clear()
+        
+        # Add back other memories
+        for memory in other_memories:
+            await user_memory.add(memory)
+        
+        # Add back user preferences (max 4)
+        for memory in user_preferences:
+            await user_memory.add(memory)
+        
+        # Add new preference
+        await user_memory.add(MemoryContent(
+            content=f"User {user_id}: {preference}",
+            mime_type=MemoryMimeType.TEXT,
+            metadata={"user_id": user_id, "type": "preference", "timestamp": datetime.now().isoformat()}
+        ))
+        
+        # Save to Firestore
+        await user_memory_manager.save_user_memories(user_id)
+        
+        print(f"✅ Added preference for user {user_id}: {preference}")
+        return {"status": "success", "message": "Preference added to memory"}
+    except Exception as e:
+        print(f"⚠ Error adding user preference: {e}")
+        return {"status": "error", "message": str(e)}
+
+async def add_order_to_memory(user_id: str, order_details: str) -> dict:
+    """Add order details to memory, keeping only 5 most recent orders per user"""
+    try:
+        # Get user-specific memory
+        user_memory = user_memory_manager.get_user_memory(user_id)
+        
+        # Get current memory contents for this user
+        query_result = await user_memory.query("")
+        memories = query_result.results if hasattr(query_result, 'results') else query_result
+        
+        # Filter memories for this user and type
+        user_orders = []
+        other_memories = []
+        
+        for memory in memories:
+            # Handle both MemoryContent objects and tuples
+            if hasattr(memory, 'metadata') and memory.metadata:
+                if memory.metadata.get("type") == "order":
+                    user_orders.append(memory)
+                else:
+                    other_memories.append(memory)
+            else:
+                other_memories.append(memory)
+        
+        # Keep only 4 most recent orders (we'll add 1 more)
+        user_orders = user_orders[-4:] if len(user_orders) > 4 else user_orders
+        
+        # Clear user memory
+        await user_memory.clear()
+        
+        # Add back other memories
+        for memory in other_memories:
+            await user_memory.add(memory)
+        
+        # Add back user orders (max 4)
+        for memory in user_orders:
+            await user_memory.add(memory)
+        
+        # Add new order
+        await user_memory.add(MemoryContent(
+            content=f"Order for {user_id}: {order_details}",
+            mime_type=MemoryMimeType.TEXT,
+            metadata={"user_id": user_id, "type": "order", "timestamp": datetime.now().isoformat()}
+        ))
+        
+        # Save to Firestore
+        await user_memory_manager.save_user_memories(user_id)
+        
+        print(f"✅ Added order to memory for user {user_id}: {order_details}")
+        return {"status": "success", "message": "Order added to memory"}
+    except Exception as e:
+        print(f"⚠ Error adding order to memory: {e}")
+        return {"status": "error", "message": str(e)}
+
+async def add_conversation_to_memory(user_id: str, user_message: str, assistant_response: str) -> dict:
+    """Add conversation to memory, keeping only 5 most recent conversations per user"""
+    try:
+        # Get user-specific memory
+        user_memory = user_memory_manager.get_user_memory(user_id)
+        
+        # Get current memory contents for this user
+        query_result = await user_memory.query("")
+        memories = query_result.results if hasattr(query_result, 'results') else query_result
+        
+        # Filter memories for this user and type
+        user_conversations = []
+        other_memories = []
+        
+        for memory in memories:
+            # Handle both MemoryContent objects and tuples
+            if hasattr(memory, 'metadata') and memory.metadata:
+                if memory.metadata.get("type") == "conversation":
+                    user_conversations.append(memory)
+                else:
+                    other_memories.append(memory)
+            else:
+                other_memories.append(memory)
+        
+        # Keep only 4 most recent conversations (we'll add 1 more)
+        user_conversations = user_conversations[-4:] if len(user_conversations) > 4 else user_conversations
+        
+        # Clear user memory
+        await user_memory.clear()
+        
+        # Add back other memories
+        for memory in other_memories:
+            await user_memory.add(memory)
+        
+        # Add back user conversations (max 4)
+        for memory in user_conversations:
+            await user_memory.add(memory)
+        
+        # Add new conversation
+        conversation_content = f"User: {user_message}\nAssistant: {assistant_response}"
+        await user_memory.add(MemoryContent(
+            content=conversation_content,
+            mime_type=MemoryMimeType.TEXT,
+            metadata={"user_id": user_id, "type": "conversation", "timestamp": datetime.now().isoformat()}
+        ))
+        
+        # Save to Firestore
+        await user_memory_manager.save_user_memories(user_id)
+        
+        print(f"✅ Added conversation to memory for user {user_id}")
+        return {"status": "success", "message": "Conversation added to memory"}
+    except Exception as e:
+        print(f"⚠ Error adding conversation to memory: {e}")
+        return {"status": "error", "message": str(e)}
 #--- Vectorstore Setup with Startup Loading ---
 device = 'cpu'
 embedding_model = None
@@ -882,10 +1146,24 @@ def recommend_time_based_suggestions(budget_egp: Optional[float] = None, k: int 
             # Normalize Algolia hits to same shape
             normalized_alg_hits: List[dict] = []
             for ah in alg_hits:
+                # Fetch restaurant name if we have restaurant_id
+                restaurant_name = ""
+                restaurant_id = ah.get("item_cat", "")
+                if restaurant_id:
+                    try:
+                        restaurant_data = get_restaurant_by_id(restaurant_id)
+                        if restaurant_data and restaurant_data.get("name_ar"):
+                            restaurant_name = restaurant_data["name_ar"]
+                        elif restaurant_data and restaurant_data.get("name_en"):
+                            restaurant_name = restaurant_data["name_en"]
+                    except:
+                        restaurant_name = "المطعم: غير متوفر حالياً"
+                
                 meta = {
                     "type": "item",
                     "item_id": ah.get("item_id") or ah.get("id") or "",
-                    "restaurant_id": ah.get("item_cat", ""),
+                    "restaurant_id": restaurant_id,
+                    "restaurant_name": restaurant_name,
                     "name_en": ah.get("name_en", ""),
                     "name_ar": ah.get("name_ar", ""),
                     "description_en": ah.get("description_en", ""),
@@ -898,6 +1176,8 @@ def recommend_time_based_suggestions(budget_egp: Optional[float] = None, k: int 
                     content_parts.append(f"Item: {meta['name_en']}")
                 if meta["name_ar"]:
                     content_parts.append(f"الوجبة: {meta['name_ar']}")
+                if meta["restaurant_name"]:
+                    content_parts.append(f"Restaurant: {meta['restaurant_name']}")
                 if meta["description_en"]:
                     content_parts.append(f"Description: {meta['description_en']}")
                 if meta["description_ar"]:
@@ -909,7 +1189,25 @@ def recommend_time_based_suggestions(budget_egp: Optional[float] = None, k: int 
                     "metadata": meta
                 })
 
-            merged_hits = sem_hits + normalized_alg_hits
+            # Process semantic hits to fetch restaurant names
+            processed_sem_hits = []
+            for h in sem_hits:
+                meta = h.get("metadata", {})
+                restaurant_id = meta.get("restaurant_id", "")
+                if restaurant_id and not meta.get("restaurant_name"):
+                    try:
+                        restaurant_data = get_restaurant_by_id(restaurant_id)
+                        if restaurant_data and restaurant_data.get("name_ar"):
+                            meta["restaurant_name"] = restaurant_data["name_ar"]
+                        elif restaurant_data and restaurant_data.get("name_en"):
+                            meta["restaurant_name"] = restaurant_data["name_en"]
+                        else:
+                            meta["restaurant_name"] = "المطعم: غير متوفر حالياً"
+                    except:
+                        meta["restaurant_name"] = "المطعم: غير متوفر حالياً"
+                processed_sem_hits.append(h)
+            
+            merged_hits = processed_sem_hits + normalized_alg_hits
             for h in merged_hits:
                 meta = h.get("metadata", {})
                 key = (meta.get("type"), meta.get("item_id") or meta.get("restaurant_id"), h.get("content"))

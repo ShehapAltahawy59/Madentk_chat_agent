@@ -11,7 +11,7 @@ Set these environment variables to enable Algolia full-text and fuzzy-typo toler
 
 The backend will prefer Algolia for `search_restaurant_by_name` and `get_item_by_name`. Ensure your indices contain fields used for filtering: `where`, and for items either `item_cat` or `restaurant_id`.
 
-SmartFoodAgent is a location-aware food ordering/chat assistant built with FastAPI (backend) and Streamlit (UI). It integrates Firebase (Firestore) for operational data and Chroma DB for semantic search with multilingual embeddings and reranking.
+MadentkAgent is a location-aware food ordering/chat assistant built with FastAPI (backend) and Streamlit (UI). It integrates Firebase (Firestore) for operational data and Chroma DB for semantic search with multilingual embeddings and reranking.
 
 ## ✨ Features
 - Location-scoped search using `where` (e.g., `quweisna`, `AboHammad`, `KafrShokr`)
@@ -26,6 +26,18 @@ SmartFoodAgent is a location-aware food ordering/chat assistant built with FastA
 - UI: Streamlit (`streamlit_app.py`)
 - Agent tools and data access in `agent/tools.py`
 - Vector DB store: Chroma DB persisted to directory `chroma_db/` (or `/data/chroma_db` in Docker)
+
+## 🤖 Agent Behavior (Prompt Highlights)
+- Answers in Egyptian Arabic (عامية مصرية), concise and polite.
+- Uses multiple tools per turn when needed; never claims an order is placed without actually calling `insert_order`.
+- Uses only existing user data fetched via `get_user_by_id`. It cannot add new addresses/phones; if missing, the agent asks the user to open the app and add them.
+- If multiple addresses/phones exist, the agent lists them numbered so the user can choose (e.g., "العنوان الأول", "التليفون التاني").
+- Orders can include items from one restaurant only. If the user wants items from multiple restaurants, the agent asks before creating separate orders.
+- When recommending items, the agent always shows available sizes with extra prices derived from the item `sizes` structure and keeps responses skimmable.
+- Item names are returned exactly as stored (no translation/modification).
+- The agent asks for order notes and includes them in the `notes` field when placing the order.
+- If an item result lacks a restaurant name, the agent uses `item_cat` as the `restaurant_id` to fetch restaurant display data (name) before presenting.
+- For delivery cost, the agent parses user address like: "قويسنا,عرب الرمل,امام المسجد" → area is the second comma-separated part ("عرب الرمل"), then looks up the delivery cost.
 
 ## 📦 Requirements
 - Python 3.10+
@@ -65,6 +77,15 @@ Expected collections and key fields:
   - Note: items do NOT have a `where`; they inherit location from their restaurant
 - `orders`
 - `users`
+
+### Regions and Delivery Cost
+- Collection: `regions` → document `elmnofia` → field `cities`
+- Structure: `cities` is an array; index `0` is a map that contains `delivery_zones` (array of objects)
+- `delivery_zones` object shape:
+  - `zone_name` (area name)
+  - `zone_cost` (number)
+
+The tool `get_delivery_cost(area_name)` reads `regions/elmnofia/cities[0]/delivery_zones`, finds a matching `zone_name`, and returns `zone_cost` as float.
 
 ## 🔎 Vector DB (Chroma)
 - Embeddings: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
@@ -171,6 +192,29 @@ Docker specifics:
 - `routes/chat.py`: Chat endpoint; sets active context (`set_active_user_id`, `set_active_where`)
 - `app.py`: FastAPI app wiring and health/debug routes
 - `streamlit_app.py`: UI with location selector; posts to `/chat`
+
+## 🛠️ Tools Overview (agent/tools.py)
+- `insert_order(order_data)`
+  - Places an order into Firestore. The agent ensures required fields exist. Uses `where` context and includes `notes` when provided. Order must be from a single restaurant.
+- `get_user_by_id(user_id)`
+  - Fetches existing user data (addresses/phones). The agent cannot add new ones; if missing, it asks the user to add them in the app.
+- `get_restaurant_by_id(restaurant_id)`
+- `get_item_by_id(item_id, restaurant_id?)`
+- `get_items_in_restaurant(restaurant_id)`
+- `search_restaurant_by_name(name)` (Algolia)
+- `get_item_by_name(item_name, restaurant_id?)` (Algolia)
+- `search_semantic(query, scope?, k)`
+- `recommend_time_based_suggestions(budget_egp?, k)`
+- `get_delivery_cost(area_name)`
+  - Reads `regions/elmnofia` as described above to return delivery cost for an area.
+
+## 🧾 Item Sizes Structure
+Items expose sizes through a `sizes` map containing three parallel arrays:
+- `sizes.name_ar[]`
+- `sizes.name_en[]`
+- `sizes.price[]` (extra price per size)
+
+When a user requests a size, the agent matches by name and adds the corresponding extra price to the base item price. If no size exists, it informs the user and keeps the size field empty in the order.
 
 ## 📜 License
 MIT

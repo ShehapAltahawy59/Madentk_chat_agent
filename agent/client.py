@@ -18,6 +18,7 @@ az_model_client = OpenAIChatCompletionClient(
         function_calling=True,
         json_output=True,
         family="unknown",
-        structured_output=True
+        structured_output=True,
+        multiple_system_messages=True  # Enable multiple system messages
     )
 ) 
